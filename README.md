@@ -1,130 +1,111 @@
-# PUBG-stats
-Сбор информации с PUBG API по последним играм и вывод некоторой статистики, полученной с апишки
+# 🎯 DROPZONE — PUBG Stats & Mortar Tools
 
-## Запуск в Docker
+**Статистика матчей, интерактивные карты и миномётный калькулятор PUBG: BATTLEGROUNDS в одном приложении.**
 
-Создайте `.env` на основе `.env.example` и укажите действительный `PUBG_API_KEY`, затем выполните:
+[Открыть сайт](https://95.174.95.143/pubg/) · [Миномётный калькулятор](https://95.174.95.143/pubg/#mortar) · [Секретные места](https://95.174.95.143/pubg/secret-rooms)
 
+![Python](https://img.shields.io/badge/Python-Flask-3776AB?logo=python&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-frontend-F7DF1E?logo=javascript&logoColor=black)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white)
+![Responsive](https://img.shields.io/badge/интерфейс-desktop%20%26%20mobile-26A69A)
 
-https://developer.pubg.com/apps?locale=en
+## О проекте
+
+DROPZONE помогает разбирать сыгранные матчи и планировать миномётные выстрелы. Статистика и телеметрия поступают из официального PUBG API; карты, модель высот и вычисления работают внутри приложения. Интерфейс поддерживает мышь, касания и полноэкранный режим.
+
+| | |
+|---|---|
+| **Основные языки** | Python и JavaScript; интерфейс — HTML и CSS |
+| **Сервер и данные** | Flask, PUBG API, Pillow и OpenCV |
+| **Запуск** | Docker Compose; Gunicorn внутри контейнера |
+| **Объём исходников** | **3 162 строки** в 15 отслеживаемых файлах Python, JavaScript, HTML и CSS, включая тесты |
+| **История** | **6 коммитов** на момент обновления README, 13 ноября 2026 г. |
+
+Метрики — снимок на указанную дату. Строки подсчитаны по отслеживаемым файлам с расширениями `.py`, `.js`, `.cjs`, `.html`, `.css`, включая пустые строки и комментарии; данные карт и изображения не учитываются. Текущее число коммитов можно проверить командой `git rev-list --count HEAD`.
+
+## Возможности
+
+- **Разбор матча:** выбор тиммейта или ввод никнейма, статистика, маршруты игроков, траектория самолёта, ноки и убийства с оружием, приземлившиеся эйрдропы и круги безопасной зоны по фазам.
+- **Миномётный калькулятор:** точки миномёта и цели, расстояние по горизонтали, перепад высот, прямое расстояние и оценка настройки прицела. Есть круг номинальной дальности 700 м и настраиваемый условный круг около цели.
+- **Расчёт по скриншоту:** вставка из буфера или загрузка PNG, JPEG и WebP, выбор цвета игрока, автоматические подсказки и ручная корректировка точек. При необходимости карту можно совместить по двум ориентирам.
+- **Секретные места:** интерактивные карты комнат и дверей, а также слои автомобилей и заправок. Старые точки дельтапланов доступны отдельным слоем: после обновления игры они могут быть неактуальны.
+- **Windows Clipboard:** локальная программа отслеживает новые изображения в буфере и передаёт их калькулятору, открытому через программу.
+
+Источники секретных мест — данные сообщества; список и координаты могут быть неполными или измениться после обновления игры. Метки стоит проверять в матче.
+
+## Как работает миномётный расчёт
+
+Обозначим точку миномёта **A**, точку цели **B** и перепад `Δh = высота B − высота A`.
+
+1. Координаты PUBG по осям X и Y заданы в сантиметрах. Приложение переводит их в метры и вычисляет горизонтальную дистанцию:
+
+   ```text
+   D = hypot(xB − xA, yB − yA) / 100
+   Δh = hB − hA
+   ```
+
+2. Для обеих точек запрашиваются высоты рельефа. Прямое расстояние считается отдельно: `sqrt(D² + Δh²)`. **Это геометрическая дистанция, а не настройка прицела.**
+3. Для настройки прицела используется приближённая модель сообщества из [mortarkiller_desktop](https://github.com/Ashimdude/mortarkiller_desktop): перебираются углы от 85,5° до 45,5° с шагом 0,5°. Каждому углу соответствует табличное значение игрового прицела `R`.
+4. Для каждого угла вычисляются горизонтальная скорость и высота вершины траектории относительно цели:
+
+   ```text
+   vx = 151 × cos(θ)
+   H  = (151² × sin²(θ)) / (2 × 32,16) − 17,8 − Δh
+   ```
+
+   Значения `151`, `32,16` и `−17,8` — параметры модели сообщества. Если `H < 0`, цель выше вершины расчётной траектории и такой вариант отбрасывается.
+5. Падение моделируется от `R / 2` с шагом 0,01 секунды. Среди вариантов, где расчётная точка отличается от `D` меньше чем на 10 м, выбирается ближайший; затем угол уточняется шагом 0,1° с интерполяцией табличного прицела. Если подходящего варианта или данных высоты нет, сайт не подставляет выдуманное значение.
+
+Например, при горизонтальном расстоянии **500 м** и цели **на 129 м выше** модель предлагает прицел около **593 м**; при цели **на 129 м ниже** — около **463 м**. Использовать нужно выделенное значение **«Установите прицел»**.
+
+> Расчёт — **оценка, а не официальная физическая модель PUBG**. Точность зависит от выбранных точек, данных высот и актуальности модели; проверяйте результат пристрелкой. Рельеф не учитывает крыши и мосты. Круг 700 м показывает номинальную дальность на одном уровне, а круг у цели — пользовательский ориентир, не подтверждённый радиус игрового разброса.
+
+Для девяти карт используются карты высот сообщества из [Mortarkiller](https://github.com/MingDMeng/mortarkiller) с билинейной интерполяцией; для Haven и тренировочного полигона данных высоты нет. Сведения об источниках находятся в [`terrain/sources.json`](terrain/sources.json).
+
+## Быстрый запуск
+
+Установите Docker и Docker Compose, затем создайте `.env` на основе [`.env.example`](.env.example) и укажите ключ из [PUBG Developer Portal](https://developer.pubg.com/).
 
 ```bash
-docker compose up --build
+cp .env.example .env
+# Заполните PUBG_API_KEY в .env
+docker compose up -d --build
 ```
 
-Приложение будет доступно по адресу `http://localhost:5000`.
+В PowerShell вместо `cp` можно использовать `Copy-Item .env.example .env`. После запуска приложение доступно на **http://127.0.0.1:5000**. Контейнер намеренно привязан к локальному адресу; для публичного доступа используйте HTTPS reverse proxy. Не добавляйте `.env` и ключ API в Git.
 
+Для размещения рядом с другим сайтом используйте пример [`deploy/nginx-pubg-shared.conf`](deploy/nginx-pubg-shared.conf) и ограничения запросов [`deploy/pubg-screenshot-limit.conf`](deploy/pubg-screenshot-limit.conf). На текущем сервере приложение доступно по `/pubg/`; настройки существующего сайта заменять не требуется. Подробнее — в [`deploy/README.md`](deploy/README.md).
 
-## Map telemetry
+## Автозагрузка скриншотов в Windows
 
-All ten Battle Royale maps and Camp Jackal are bundled locally in `static/maps`.
-Images and weapon names come from https://github.com/pubg/api-assets (PUBG Developer Terms apply).
-Raw telemetry map identifiers are normalized before selecting image and coordinate extent.
-Combat markers, labels, dashes and routes use CSS-pixel sizes converted through the SVG screen matrix and zoom.
-Landed airdrops come exclusively from `LogCarePackageLand`, deduplicated by package ID.
-The map shows the whole match, including all recorded landings, rather than a live timeline.
+1. Установите Pillow и запустите `python clipboard-helper/pubg_clipboard.py`.
+2. Нажмите в программе **«Открыть калькулятор»**: сайт откроется через локальный адрес `127.0.0.1:18741`.
+3. Выберите игровую карту и цвет игрока, затем скопируйте новый скриншот карты в буфер.
+4. Проверьте автоматически найденные точки A и B; при необходимости исправьте их вручную.
 
+Программа хранит последнее изображение в памяти до изменения буфера или закрытия. Скриншот передаётся на сервер приложения для распознавания; локальный поток доступен странице помощника. Для самостоятельной сборки Windows-программы можно установить PyInstaller и выполнить:
 
-## Distance calculator
+```bash
+pyinstaller --onefile --windowed --name PUBG-Clipboard clipboard-helper/pubg_clipboard.py
+```
 
-The separate Mortar Calculator tab works without loading match telemetry or calling the API.
-Choose a map, click A (mortar), then B (target). A third click starts a new measurement.
-Drag to pan; use the wheel or buttons to zoom. Distances use each map's telemetry extent.
-Terrain elevations are fetched automatically from `/api/terrain-height` after each click.
-Nine maps use community heightmaps from https://github.com/MingDMeng/mortarkiller
-with its 2.08 m per red-channel level calibration. Bundled gzip rasters have a
-2048 x 2048 sampling grid (about 4 m on 8 km maps), with bilinear interpolation.
-Displayed elevations are model-relative estimates, not surveyed sea-level values.
-Data can differ from current terrain; buildings, roofs and bridges are not modeled.
-Haven and Camp Jackal have no data and explicitly show unavailable heights.
-This computes straight-line 3D distance, not a ballistic mortar range setting.
-Source metadata is in `terrain/sources.json`; no external service or PUBG API key
-is needed for elevation lookups.
+Готовый `.exe` является результатом сборки и не хранится в репозитории.
 
+## Проверки
 
-## Map rendering performance
+```bash
+python -m unittest -v test_telemetry test_screenshot
+node test_mortar_math.cjs
+node test_mortar_ballistics.cjs
+```
 
-`static/map-renderer.js` batches camera updates with requestAnimationFrame and caches
-SVG viewport geometry. Maps use a separate composited raster layer; combat markers,
-airdrops and mortar geometry reuse existing SVG nodes. Panning does not rebuild
-labels or measure SVG text. Label widths are measured once through Canvas and label
-collision checks use a spatial grid on zoom. Coordinates and pixel-sized markers
-retain their original calibration.
+Тесты проверяют телеметрию, доступность карт и высот, сопоставление скриншотов, геометрическую дистанцию и баллистическую модель для разных перепадов высот. Для локального запуска Python-тестов установите зависимости из `requirements.txt`; для JavaScript-тестов требуется Node.js.
 
+## Источники
 
-### Distance calculation checks
+- [PUBG Developer Portal и API](https://developer.pubg.com/) · [ресурсы карт и оружия PUBG API](https://github.com/pubg/api-assets).
+- [Mortarkiller Desktop](https://github.com/Ashimdude/mortarkiller_desktop) — модель миномётной траектории и таблица прицела.
+- [Mortarkiller](https://github.com/MingDMeng/mortarkiller) — исходные карты высот сообщества.
+- [SenseOS: интерактивная карта](https://senseos.gg/wiki/pubg-battlegrounds/interactive-map/) — данные сообщества о секретных местах и транспорте. Старые точки дельтапланов не гарантируют появления после обновления 43.2.
 
-The panel and fullscreen overlay share a single result:
-`horizontal = hypot(dx, dy) / 100`, `delta = heightB - heightA`,
-`distance = hypot(horizontal, delta)`. Heights are in meters; XY is centimeters.
-This is straight-line geometry, not a ballistic mortar aiming setting.
-Missing, null or invalid elevations never become zero or planar fallback values.
-Run `node test_mortar_math.cjs` for analytical tests, including the 3-4-5 horizontal
-triangle plus 12 m elevation giving exactly 13 m, ascent/descent, zero elevations
-and invalid values. Point placement uses taps/clicks or marker dragging.
-
-## Screenshot distance
-
-In the Mortar Calculator, choose the matching map and squad color, then paste a
-screenshot or select a PNG, JPEG or WebP file (up to 12 MiB). The server registers
-visible map features against its bundled map; colored point suggestions are
-provisional and must be checked. Users can pick A and B directly on the screenshot,
-pan and zoom the original screenshot with mouse or touch, drag the vector markers,
-open it fullscreen, or align it manually using two distant landmarks on both maps.
-The server does not persist uploaded images. HTTPS deployment should install both
-`deploy/nginx-pubg.conf` and `deploy/pubg-screenshot-limit.conf` (the latter in
-`/etc/nginx/conf.d/`) so nginx accepts 12 MiB, streams the body to the app rather
-than buffering it to disk, and limits recognition request rates. Terrain coverage
-and straight-line accuracy limitations are the same as the regular calculator.
-
-Telemetry zones use one unfilled target circle per recorded phase. If older telemetry
-has no phase identifiers, only stable circles can be shown without inventing phases.
-
-## VPS security
-
-Docker publishes the application to loopback only. The container runs as a
-non-root user with a read-only root filesystem, no Linux capabilities, and
-`no-new-privileges`; `/tmp` is a small writable tmpfs. Nginx terminates HTTPS
-and rate-limits screenshot recognition and the public player/match endpoints.
-The application is still public and does not require a login.
-
-The deployed Debian host uses UFW for TCP 22, 80 and 443, Fail2ban for SSH,
-SSH key authentication with direct root login disabled, and unattended Debian
-security updates. Kernel updates require a planned restart. Docker-published
-ports may bypass UFW: keep the application bound to `127.0.0.1` and review any
-new container port mappings and Cloud.ru security-group rules.
-
-
-## Sharing an HTTPS host
-
-On the shared VPS the physics page stays at `/`, DocumentVault keeps its routes,
-and this app is served at `/pubg/`. Include `deploy/nginx-pubg-shared.conf` in
-the existing HTTPS server block and `deploy/pubg-screenshot-limit.conf` in the
-Nginx HTTP context; do not replace the existing server configuration. Nginx
-sets `X-Forwarded-Prefix` and proxies to the app on loopback. Link directly to
-`/pubg/#mortar` to open the calculator. Do not expose the backend port publicly.
-
-## Mortar aiming estimate
-
-The aiming setting uses the community desktop model and sight-angle table from
-https://github.com/Ashimdude/mortarkiller_desktop. It models the descending
-arc with gravity 32.16, launch speed 151 and empirical height adjustment -17.8,
-then refines the best discrete setting by 0.1-degree interpolation. This is an
-estimate, not official game physics, and must be verified by test shots. Terrain
-heights omit roofs and bridges. The range ring is nominal, not a firing envelope.
-Run `node test_mortar_ballistics.cjs` and `node test_mortar_math.cjs`.
-
-## Windows clipboard helper
-
-`clipboard-helper/pubg_clipboard.py` watches the Windows clipboard for new
-images. With Pillow installed, run `python clipboard-helper/pubg_clipboard.py`,
-then select **Открыть калькулятор**. It opens the site through
-`http://127.0.0.1:18741/pubg/#mortar`; the screenshot and recognition request
-are sent to the configured VPS, while the latest image is held only in memory
-until the clipboard changes or the helper closes. Only the local helper origin
-can access its clipboard stream. Select the game map and verify the detected
-points before using the aiming estimate.
-
-For a standalone Windows executable, install PyInstaller and run
-`pyinstaller --onefile --windowed --name PUBG-Clipboard clipboard-helper/pubg_clipboard.py`.
-The generated executable is a build artifact and is not included in the repo.
+Проект создан сообществом и не является официальным продуктом KRAFTON или PUBG Studios.
