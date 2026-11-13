@@ -1,3 +1,4 @@
+function appPath(path) { return (window.APP_BASE || '') + path; }
 const $ = id => document.getElementById(id);
 let state = {mapSize: 816000, squad: [], zones: [], combat: [], airdrops: [], mapImage: ''};
 let view = {scale: 1, x: 0, y: 0};
@@ -51,7 +52,7 @@ function mapName(name) {
 function mapImage(name, fallback) {
     const canonical = canonicalMap(name);
     const extension = ['Paramo_Main', 'Miramar_Main'].includes(canonical) ? 'jpg' : 'webp';
-    return Object.hasOwn(mapNames, canonical) ? `/static/maps/${canonical}.${extension}?v=2` : (fallback || '')
+    return Object.hasOwn(mapNames, canonical) ? appPath(`/static/maps/${canonical}.${extension}?v=2`) : (fallback?.startsWith('/static/') ? appPath(fallback) : (fallback || ''))
 }
 
 function fmtDate(value) {
@@ -274,7 +275,7 @@ async function loadMatch(id) {
     const player = $('custom-player').value.trim() || $('player').value;
     setStatus('Загружаю выбранный матч и телеметрию…');
     try {
-        const r = await fetch('/api/dashboard', {
+        const r = await fetch(appPath('/api/dashboard'), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({player, shard: $('shard').value, match_id: id})
@@ -340,7 +341,7 @@ $('load').addEventListener('click', async () => {
     $('load').textContent = 'Поиск…';
     setStatus('Ищу игрока и последние матчи…');
     try {
-        const r = await fetch('/api/players', {
+        const r = await fetch(appPath('/api/players'), {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({player, shard: $('shard').value})

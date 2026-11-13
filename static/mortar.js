@@ -16,6 +16,46 @@ function calculateMortarDistance(a, b, heightA, heightB) {
     return {horizontal, delta, distance: delta !== null ? Math.hypot(horizontal, delta) : null};
 }
 
+// Approximate empirical trajectory from mortarkiller_desktop; heights are metres.
+let cachedMortarAim = null;
+function calculateMortarAim(horizontal, delta) {
+    if (typeof horizontal !== 'number' || !Number.isFinite(horizontal) || horizontal < 0 ||
+        typeof delta !== 'number' || !Number.isFinite(delta)) return null;
+    if (cachedMortarAim && cachedMortarAim.horizontal === horizontal && cachedMortarAim.delta === delta) return cachedMortarAim.result;
+    const ranges = [121,133,145,157,169,181,193,204,216,228,239,250,262,273,284,295,307,317,328,339,350,360,371,381,391,401,411,421,431,440,450,459,468,477,486,495,503,512,520,528,536,544,551,559,566,573,580,587,593,600,606,612,618,624,629,634,639,644,649,653,658,662,666,669,673,676,679,682,685,687,689,691,693,695,696,697,698,699,699,700,700];
+    let best = null;
+    for (let i = 0; i < ranges.length; i++) {
+        const angle = 85.5 - i * .5, radians = angle / 180 * 3.14;
+        let height = 151 ** 2 * Math.sin(radians) ** 2 / (2 * 32.16) - 17.8 - delta;
+        if (height < 0) continue; // Target is above the apex: the descending model cannot solve it.
+        let x = ranges[i] / 2, t = 0;
+        while (height >= 0) { const vy = 32.16 * t; t += .01; x += 151 * Math.cos(radians) * .01; height -= vy * .01; }
+        const error = Math.abs(x - horizontal);
+        if (error < 10 && (!best || error < best.error)) best = {aim:ranges[i], angle, predicted:x, error};
+    }
+    if (best && best.error > 0) {
+        const signedError = best.predicted - horizontal, direction = Math.sign(signedError);
+        const index = Math.round((85.5 - best.angle) / .5), other = index - direction;
+        if (other >= 0 && other < ranges.length && !(best.angle <= 49 && signedError <= 0)) {
+            let refined = best;
+            for (let step = 1; step < 5; step++) {
+                const angle = best.angle + direction * step * .1;
+                const aim = Math.round(ranges[index] + (ranges[other] - ranges[index]) * step / 5);
+                const radians = angle / 180 * 3.14;
+                let height = 151 ** 2 * Math.sin(radians) ** 2 / (2 * 32.16) - 17.8 - delta;
+                if (height < 0) continue;
+                let x = aim / 2, t = 0;
+                while (height >= 0) { const vy = 32.16 * t; t += .01; x += 151 * Math.cos(radians) * .01; height -= vy * .01; }
+                const error = Math.abs(x-horizontal);
+                if (error < refined.error) refined = {aim, angle, predicted:x, error};
+            }
+            best = refined;
+        }
+    }
+    cachedMortarAim = {horizontal, delta, result:best};
+    return best;
+}
+
 (() => {
     const el = id => document.getElementById(id);
     const svg = el('mortar-svg');
@@ -23,7 +63,7 @@ function calculateMortarDistance(a, b, heightA, heightB) {
     const mapCamera = createMapCamera(svg, el('mortar-image'), el('mortar-viewport'), () => render());
     const scheduleRender = createMapFrame(paint);
     const scheduleControls = createMapFrame(updateControls);
-    const scene = {count: -1, ring: null, line: null, markers: []};
+    const scene = {count: -1, ring: null, impact: null, line: null, markers: []};
     let lastSceneKey = '', lastSceneUnit = NaN;
     const sizes = {Sanhok_Main: 408000, Paramo_Main: 306000,
         Karakin_Main: 204000, Range_Main: 204000, Haven_Main: 102000};
@@ -37,6 +77,8 @@ function calculateMortarDistance(a, b, heightA, heightB) {
     const extent = () => sizes[selectedMap] || 816000;
     window.mortarMapInfo = () => ({name: selectedMap, extent: extent()});
     const meters = value => `${value.toLocaleString('ru-RU', {maximumFractionDigits: 1})} м`;
+    window.impactRadiusMeters = () => { const input = el('impact-radius'); const value = Number(input.value); return input.value.trim() && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 0; };
+    el('impact-radius').addEventListener('input', () => { lastSceneKey = ''; render(); document.dispatchEvent(new Event('impact-radius-change')); });
     const svgPosition = event => mapCamera.point(event);
 
     const cards = [];
@@ -46,7 +88,7 @@ function calculateMortarDistance(a, b, heightA, heightB) {
         button.className = 'map-preview-card';
         button.setAttribute('aria-pressed', String(value === selectedMap));
         const image = document.createElement('img');
-        image.src = `/static/maps/previews/${value}.webp`;
+        image.src = appPath(`/static/maps/previews/${value}.webp`);
         image.alt = '';
         image.width = 160;
         image.height = 100;
@@ -75,6 +117,7 @@ function calculateMortarDistance(a, b, heightA, heightB) {
         scene.ring = points.length ? svgElement('circle', {fill: '#62d4cf0b', stroke: '#62d4cf',
             'pointer-events': 'none'}, root) : null;
         if (scene.ring) svgElement('title', {}, scene.ring).textContent = 'Номинальная максимальная дальность: 700 м';
+        scene.impact = points.length === 2 ? svgElement('circle', {class:'mortar-impact-ring', fill:'#f2756822', stroke:'#f27568', 'pointer-events':'none'}, root) : null;
         scene.line = points.length === 2 ? svgElement('line', {stroke: '#ffd36c'}, root) : null;
         points.forEach((_, index) => {
             const group = svgElement('g', {}, root);
@@ -87,7 +130,7 @@ function calculateMortarDistance(a, b, heightA, heightB) {
         const geometry = mapCamera.measure();
         if (!geometry) return;
         const unit = 1 / (geometry.pixelsPerUnit * camera.scale);
-        const key = `${extent()}:${points.map(p => `${p.x},${p.y}`).join(';')}`;
+        const key = `${extent()}:${window.impactRadiusMeters()}:${points.map(p => `${p.x},${p.y}`).join(';')}`;
         mapCamera.apply(camera);
         // Panning updates the camera only, not the range circle or marker DOM.
         if (key === lastSceneKey && unit === lastSceneUnit) return;
@@ -100,6 +143,13 @@ function calculateMortarDistance(a, b, heightA, heightB) {
             scene.ring.setAttribute('r', 700 * 100 / extent() * 100);
             scene.ring.setAttribute('stroke-width', 1.8 * unit);
             scene.ring.setAttribute('stroke-dasharray', `${7 * unit} ${4 * unit}`);
+        }
+        if (scene.impact) {
+            const b = xy(points[1]), radius = window.impactRadiusMeters();
+            scene.impact.setAttribute('cx', b.x); scene.impact.setAttribute('cy', b.y);
+            scene.impact.setAttribute('r', radius * 100 / extent() * 100);
+            scene.impact.setAttribute('stroke-width', 1.8 * unit);
+            scene.impact.setAttribute('visibility', radius > 0 ? 'visible' : 'hidden');
         }
         if (scene.line) {
             const a = xy(points[0]), b = xy(points[1]);
@@ -124,7 +174,7 @@ function calculateMortarDistance(a, b, heightA, heightB) {
         if (!points.length) return;
         const requestedPoints = points.map(point => ({...point}));
         try {
-            const response = await fetch('/api/terrain-height', {
+            const response = await fetch(appPath('/api/terrain-height'), {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, signal: controller.signal,
                 body: JSON.stringify({map: selectedMap, points: requestedPoints})
             });
@@ -156,6 +206,10 @@ function calculateMortarDistance(a, b, heightA, heightB) {
         const distance = result ? (result.distance === null ? missing : meters(result.distance)) : '—';
         const horizontal = result ? meters(result.horizontal) : '—';
         const delta = result ? (result.delta === null ? missing : `${result.delta > 0 ? '+' : ''}${meters(result.delta)}`) : '—';
+        const solution = result && result.delta !== null ? calculateMortarAim(result.horizontal, result.delta) : null;
+        const aim = !result ? '—' : result.delta === null ? missing : solution ? meters(solution.aim) : 'Нет решения';
+        setText('mortar-aim', aim);
+        setText('mortar-map-aim', aim);
         // Both views consume exactly the same result; never substitute planar distance.
         setText('mortar-horizontal', horizontal);
         setText('mortar-distance', distance);
@@ -198,7 +252,7 @@ function calculateMortarDistance(a, b, heightA, heightB) {
         el('mortar-loading').classList.remove('hidden');
         el('mortar-image').removeAttribute('src');
         const imageUrl = matchMedia('(max-width: 920px), (pointer: coarse)').matches
-            ? `/static/maps/${selectedMap}.webp?v=2` : mapImage(selectedMap);
+            ? appPath(`/static/maps/${selectedMap}.webp?v=2`) : mapImage(selectedMap);
         el('mortar-image').src = imageUrl;
         resetCamera();
         update();
@@ -228,6 +282,8 @@ function calculateMortarDistance(a, b, heightA, heightB) {
             el(`tab-${next}`).focus();
         });
     }
+
+    if (location.hash === '#mortar') activate('mortar');
 
     function zoom(next, center = {x: 50, y: 50}) {
         next = Math.max(.7, Math.min(24, next));

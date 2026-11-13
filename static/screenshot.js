@@ -20,7 +20,7 @@
         el('screenshot-status').classList.toggle('error', error);
     };
     function resetValues() {
-        for (const id of ['screenshot-horizontal', 'screenshot-height', 'screenshot-distance']) el(id).textContent = '—';
+        for (const id of ['screenshot-horizontal', 'screenshot-height', 'screenshot-distance', 'screenshot-aim']) el(id).textContent = '—';
     }
     function updateModes() {
         el('screenshot-mode-a').setAttribute('aria-pressed', String(selectedMode === 0));
@@ -65,6 +65,13 @@
                 node('title', {}, ring).textContent = 'Номинальная максимальная дальность: 700 м';
             }
         }
+        if (selected[1] && registration) {
+            const t = registration.transform, cmPerPixel = Math.hypot(t[0], t[3]), radius = window.impactRadiusMeters();
+            if (Number.isFinite(cmPerPixel) && cmPerPixel > 0 && radius > 0) {
+                node('circle', {class:'screenshot-impact-ring', cx:selected[1].x, cy:selected[1].y, r:radius*100/cmPerPixel,
+                    fill:'#f2756822', stroke:'#f27568', 'stroke-width':1.8, 'vector-effect':'non-scaling-stroke'});
+            }
+        }
         if (selected.every(Boolean)) node('line', {x1:selected[0].x, y1:selected[0].y, x2:selected[1].x, y2:selected[1].y,
             stroke:'#fff', 'stroke-width':2, 'vector-effect':'non-scaling-stroke'});
         function marker(point, label, color, size = 7) {
@@ -96,9 +103,9 @@
         }
         const planar = calculateMortarDistance(world[0], world[1], '', '');
         el('screenshot-horizontal').textContent = meters(planar.horizontal);
-        el('screenshot-height').textContent = 'Расчёт…'; el('screenshot-distance').textContent = 'Расчёт…';
+        el('screenshot-height').textContent = 'Расчёт…'; el('screenshot-distance').textContent = 'Расчёт…'; el('screenshot-aim').textContent = 'Расчёт…';
         try {
-            const response = await fetch('/api/terrain-height', {method: 'POST', signal: controller.signal,
+            const response = await fetch(appPath('/api/terrain-height'), {method: 'POST', signal: controller.signal,
                 headers: {'Content-Type': 'application/json'}, body: JSON.stringify({map: map.name, points: world})});
             const data = await response.json();
             if (requestId !== heightId) return;
@@ -108,9 +115,11 @@
             const result = calculateMortarDistance(world[0], world[1], data.heights[0], data.heights[1]);
             el('screenshot-height').textContent = `${result.delta > 0 ? '+' : ''}${meters(result.delta)}`;
             el('screenshot-distance').textContent = meters(result.distance);
+            const aim = calculateMortarAim(result.horizontal, result.delta);
+            el('screenshot-aim').textContent = aim ? meters(aim.aim) : 'Нет решения';
         } catch (error) {
             if (requestId !== heightId || error.name === 'AbortError') return;
-            el('screenshot-height').textContent = 'Нет данных'; el('screenshot-distance').textContent = 'Нет данных высоты';
+            el('screenshot-height').textContent = 'Нет данных'; el('screenshot-distance').textContent = 'Нет данных высоты'; el('screenshot-aim').textContent = 'Нет данных высоты';
             status(error.message, true);
         }
     }
@@ -125,7 +134,7 @@
         const params = new URLSearchParams({map: map.name, color});
         status(`Распознаю скриншот: ${mapNames[map.name]}…`);
         try {
-            const response = await fetch(`/api/screenshot/recognize?${params}`, {
+            const response = await fetch(appPath(`/api/screenshot/recognize?${params}`), {
                 method:'POST', body:file, headers:{'Content-Type':file.type}, signal:controller.signal
             });
             if (response.status === 429) throw new Error('Слишком много запросов распознавания. Подождите немного и повторите.');
@@ -178,6 +187,43 @@
             resetValues(); draw(); analyze();
         } catch (_) { status('Не удалось открыть скриншот.', true); }
     }
+    let autoEnabled = false, autoSocket = null, autoTimer = null;
+    const autoButton = el('screenshot-auto'), autoStatus = el('screenshot-auto-status');
+    function stopAuto() {
+        autoEnabled = false; clearTimeout(autoTimer); autoSocket?.close(); autoSocket = null;
+        autoButton.textContent = 'Включить автозагрузку'; autoButton.setAttribute('aria-pressed', 'false');
+        autoStatus.textContent = 'Автозагрузка выключена.';
+    }
+    function connectClipboard() {
+        if (!autoEnabled) return;
+        const socket = new WebSocket('ws://127.0.0.1:18741/events'); autoSocket = socket;
+        socket.binaryType = 'blob';
+        socket.onopen = () => { if (autoEnabled) autoStatus.textContent = 'Программа подключена. Ожидаю новый скриншот в буфере обмена.'; };
+        socket.onmessage = async event => {
+            if (!autoEnabled || socket !== autoSocket || !(event.data instanceof Blob)) return;
+            const blob = new Blob([event.data], {type:'image/png'});
+            await loadFile(blob);
+            if (autoEnabled && !document.fullscreenElement) el('screenshot-aim').scrollIntoView({block:'center', behavior:'smooth'});
+            if (autoEnabled) autoStatus.textContent = 'Скриншот получен. Проверьте выбранную карту и точки A и B.';
+        };
+        socket.onerror = () => {};
+        socket.onclose = () => {
+            if (!autoEnabled || socket !== autoSocket) return;
+            autoStatus.textContent = 'Программа не отвечает. Запустите Clipboard для Windows; подключение повторится автоматически.';
+            autoTimer = setTimeout(connectClipboard, 3000);
+        };
+    }
+    autoButton.addEventListener('click', () => {
+        if (autoEnabled) { stopAuto(); return; }
+        if (location.hostname !== '127.0.0.1' || location.port !== '18741') {
+            location.href = 'http://127.0.0.1:18741/pubg/#mortar'; return;
+        }
+        autoEnabled = true; autoButton.textContent = 'Выключить автозагрузку';
+        autoButton.setAttribute('aria-pressed', 'true'); autoStatus.textContent = 'Подключаюсь к программе…';
+        connectClipboard();
+    });
+    window.addEventListener('pagehide', stopAuto);
+    if (location.hostname === '127.0.0.1' && location.port === '18741') { tool.open = true; autoButton.click(); }
     el('screenshot-paste').addEventListener('click', async () => {
         try {
             if (!navigator.clipboard?.read) throw new Error();
@@ -353,7 +399,8 @@
     window.addEventListener('scroll', invalidate, {capture:true, passive:true});
     window.addEventListener('resize', invalidate, {passive:true});
     new ResizeObserver(invalidate).observe(svg);
-    for (const name of ['horizontal','height','distance']) {
+    document.addEventListener('impact-radius-change', draw);
+    for (const name of ['horizontal','height','distance','aim']) {
         const source = el(`screenshot-${name}`), target = el(`screenshot-map-${name}`);
         new MutationObserver(() => { target.textContent = source.textContent; }).observe(source, {childList:true, characterData:true, subtree:true});
     }

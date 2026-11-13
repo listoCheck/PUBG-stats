@@ -93,3 +93,38 @@ SSH key authentication with direct root login disabled, and unattended Debian
 security updates. Kernel updates require a planned restart. Docker-published
 ports may bypass UFW: keep the application bound to `127.0.0.1` and review any
 new container port mappings and Cloud.ru security-group rules.
+
+
+## Sharing an HTTPS host
+
+On the shared VPS the physics page stays at `/`, DocumentVault keeps its routes,
+and this app is served at `/pubg/`. Include `deploy/nginx-pubg-shared.conf` in
+the existing HTTPS server block and `deploy/pubg-screenshot-limit.conf` in the
+Nginx HTTP context; do not replace the existing server configuration. Nginx
+sets `X-Forwarded-Prefix` and proxies to the app on loopback. Link directly to
+`/pubg/#mortar` to open the calculator. Do not expose the backend port publicly.
+
+## Mortar aiming estimate
+
+The aiming setting uses the community desktop model and sight-angle table from
+https://github.com/Ashimdude/mortarkiller_desktop. It models the descending
+arc with gravity 32.16, launch speed 151 and empirical height adjustment -17.8,
+then refines the best discrete setting by 0.1-degree interpolation. This is an
+estimate, not official game physics, and must be verified by test shots. Terrain
+heights omit roofs and bridges. The range ring is nominal, not a firing envelope.
+Run `node test_mortar_ballistics.cjs` and `node test_mortar_math.cjs`.
+
+## Windows clipboard helper
+
+`clipboard-helper/pubg_clipboard.py` watches the Windows clipboard for new
+images. With Pillow installed, run `python clipboard-helper/pubg_clipboard.py`,
+then select **Открыть калькулятор**. It opens the site through
+`http://127.0.0.1:18741/pubg/#mortar`; the screenshot and recognition request
+are sent to the configured VPS, while the latest image is held only in memory
+until the clipboard changes or the helper closes. Only the local helper origin
+can access its clipboard stream. Select the game map and verify the detected
+points before using the aiming estimate.
+
+For a standalone Windows executable, install PyInstaller and run
+`pyinstaller --onefile --windowed --name PUBG-Clipboard clipboard-helper/pubg_clipboard.py`.
+The generated executable is a build artifact and is not included in the repo.

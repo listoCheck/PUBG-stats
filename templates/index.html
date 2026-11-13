@@ -6,18 +6,22 @@
     <title>DROPZONE / PUBG telemetry</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}?v=1">
     <link rel="alternate icon" href="{{ url_for('static', filename='favicon.ico') }}?v=1">
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=10">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=17">
 </head>
 <body>
 <main class="app-shell">
     <header>
         <div class="eyebrow">PUBG / TELEMETRY CONSOLE</div>
         <h1>DROPZONE</h1>
-        <p class="sub">Статус последнего доступного матча и личная карта меток</p></header>
+        <p class="sub">Статус последнего доступного матча и личная карта меток</p>
+    </header>
+    <div class="section-navigation">
     <nav class="page-tabs" role="tablist" aria-label="Разделы">
         <button id="tab-stats" role="tab" aria-selected="true" aria-controls="stats-page">Статистика матчей</button>
         <button id="tab-mortar" role="tab" aria-selected="false" aria-controls="mortar-page" tabindex="-1">Миномётный калькулятор</button>
     </nav>
+    <a class="secret-nav-button" href="{{ url_for('secret_rooms') }}">Секретные подвалы</a>
+    </div>
     <div id="stats-page" role="tabpanel" aria-labelledby="tab-stats">
     <section class="setup panel">
         <div><label for="player">Тиммейт</label><select id="player">
@@ -107,6 +111,7 @@
             <summary>Выбрать карту <span>11 карт</span></summary>
             <div id="mortar-map-cards" class="map-picker" role="group" aria-label="Выберите карту"></div>
         </details>
+        <div class="impact-settings"><label for="impact-radius">Условный радиус разброса, м</label><input id="impact-radius" type="number" min="0" max="100" step="1" value="10" inputmode="decimal"><small>Ориентир для пристрелки, не подтверждённый игровой параметр. Укажите 0, чтобы скрыть круг.</small></div>
         <details id="screenshot-tool" class="screenshot-tool">
             <summary>Расстояние по скриншоту</summary>
             <p class="hint">Выберите эту же карту выше, цвет игрока и вставьте скриншот карты из буфера обмена или выберите файл.</p>
@@ -119,11 +124,13 @@
                 </fieldset>
                 <div class="screenshot-actions">
                     <button type="button" id="screenshot-paste">Вставить из буфера</button>
+                    <button type="button" id="screenshot-auto" aria-pressed="false">Включить автозагрузку</button>
                     <label class="screenshot-file-button" for="screenshot-file">Выбрать файл</label>
                     <input id="screenshot-file" type="file" accept="image/png,image/jpeg,image/webp">
                 </div>
                 <p class="hint">Скриншот отправляется на ваш VPS для распознавания и не сохраняется в файлах.</p>
             </div>
+            <p id="screenshot-auto-status" class="hint" role="status">Запустите программу Clipboard для Windows и откройте калькулятор через неё. Новые изображения из буфера будут отправляться на ваш сервер для распознавания.</p>
             <p id="screenshot-status" class="screenshot-status" role="status" aria-live="polite">Ожидаю скриншот. На компьютере также можно нажать Ctrl+V.</p>
             <div id="screenshot-result" class="hidden">
                 <div class="screenshot-point-modes" role="group" aria-label="Точка на скриншоте">
@@ -149,15 +156,16 @@
                         <button type="button" id="screenshot-map-mode-b" aria-pressed="false">B · Метка</button>
                         <button type="button" id="screenshot-map-mode-pan" aria-pressed="false">Перемещение</button>
                     </div>
-                    <div id="screenshot-map-readout" class="map-readout"><div class="map-readout-primary"><small>Прямое расстояние с высотой</small><strong id="screenshot-map-distance">—</strong></div><div class="map-readout-secondary"><span>По горизонтали <b id="screenshot-map-horizontal">—</b></span><span>Перепад B − A <b id="screenshot-map-height">—</b></span></div></div>
+                    <div id="screenshot-map-readout" class="map-readout"><div class="map-readout-primary"><small>Установите прицел · оценка</small><strong id="screenshot-map-aim">—</strong></div><div class="map-readout-secondary"><span>По горизонтали <b id="screenshot-map-horizontal">—</b></span><span>Перепад B − A <b id="screenshot-map-height">—</b></span><span>По прямой <b id="screenshot-map-distance">—</b></span></div></div>
                 </div>
                 <p class="hint">Перетаскивайте карту или точки. Колесо мыши и жест двумя пальцами изменяют масштаб.</p>
                 <div class="measurement-results screenshot-measurements" aria-live="polite">
+            <div class="aim-result"><small>Установите прицел · оценка</small><strong id="screenshot-aim">—</strong></div>
                     <div><small>По горизонтали</small><strong id="screenshot-horizontal">—</strong></div>
                     <div><small>Перепад B − A</small><strong id="screenshot-height">—</strong></div>
                     <div><small>Прямое с высотой</small><strong id="screenshot-distance">—</strong></div>
                 </div>
-                <p id="screenshot-height-note" class="hint">Высоты приблизительные и не учитывают крыши и мосты. Прямое расстояние не является баллистической настройкой миномёта.</p>
+                <p id="screenshot-height-note" class="hint">Высоты приблизительные и не учитывают крыши и мосты. Настройка прицела — приближённая модель сообщества; проверьте её пристрелкой.</p>
             </div>
         </details>
         <div class="calculator-controls">
@@ -166,6 +174,7 @@
         </div>
         <p id="mortar-instruction" class="hint" aria-live="polite">Нажмите на карту, чтобы поставить точку A — миномёт.</p>
         <div class="measurement-results" aria-live="polite">
+            <div class="aim-result"><small>Установите прицел · оценка</small><strong id="mortar-aim">—</strong></div>
             <div><small>По горизонтали</small><strong id="mortar-horizontal">—</strong></div>
             <div><small>Перепад B − A</small><strong id="mortar-height">—</strong></div>
             <div><small>Прямое расстояние с высотой</small><strong id="mortar-distance">—</strong></div>
@@ -194,15 +203,15 @@
                 <button id="map-mode-pan" aria-pressed="false">Двигать карту</button>
             </div>
             <div class="map-readout" aria-live="polite">
-                <div class="map-readout-primary"><small>Прямое расстояние с высотой</small><strong id="mortar-map-distance">Выберите миномёт A</strong></div>
-                <div class="map-readout-secondary"><span>Горизонталь <b id="mortar-map-horizontal">—</b></span><span>Перепад B − A <b id="mortar-map-height">—</b></span></div>
+                <div class="map-readout-primary"><small>Установите прицел · оценка</small><strong id="mortar-map-aim">—</strong></div>
+                <div class="map-readout-secondary"><span>Горизонталь <b id="mortar-map-horizontal">—</b></span><span>Перепад B − A <b id="mortar-map-height">—</b></span><span>По прямой <b id="mortar-map-distance">—</b></span></div>
                 <small id="mortar-map-note">Коснитесь карты или щёлкните мышью</small>
             </div>
         </div>
         <details class="calculator-help"><summary>Жесты, дальность и точность высот</summary>
         <p class="hint">Касание — поставить выбранную точку. Перетаскивайте карту одним пальцем, масштабируйте двумя. Метки A и B можно перетаскивать.</p>
         <p class="hint">Бирюзовая окружность вокруг A — максимальная номинальная дальность 700 м на одном уровне. Перепад высот меняет фактическую дальность.</p>
-        <p class="hint">Высоты определяются автоматически по картам рельефа сообщества (оценка, данные могут отличаться от текущей версии игры). Модель показывает поверхность земли, без зданий и мостов. Для Хейвена и тренировочного полигона данных нет. Прямое расстояние с высотой не является готовой настройкой дальности миномёта.</p>
+        <p class="hint">Высоты определяются автоматически по картам рельефа сообщества (оценка, данные могут отличаться от текущей версии игры). Модель показывает поверхность земли, без зданий и мостов. Для Хейвена и тренировочного полигона данных нет. Настройка прицела вычисляется по приближённой модели сообщества и требует пристрелки; прямое расстояние показано отдельно.</p>
         </details>
         <p id="mortar-error" class="status error" role="alert"></p>
     </section>
@@ -210,8 +219,9 @@
     </footer>
 </main>
 <script src="{{ url_for('static', filename='map-renderer.js') }}?v=1"></script>
-<script src="{{ url_for('static', filename='app.js') }}?v=11"></script>
-<script src="{{ url_for('static', filename='mortar.js') }}?v=8"></script>
-<script src="{{ url_for('static', filename='screenshot.js') }}?v=2"></script>
+<script>window.APP_BASE = {{ request.script_root|tojson }};</script>
+<script src="{{ url_for('static', filename='app.js') }}?v=12"></script>
+<script src="{{ url_for('static', filename='mortar.js') }}?v=11"></script>
+<script src="{{ url_for('static', filename='screenshot.js') }}?v=8"></script>
 </body>
 </html>

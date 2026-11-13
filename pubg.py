@@ -19,6 +19,7 @@ from typing import Any
 
 import requests
 from flask import Flask, jsonify, render_template, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 from screenshot_recognition import recognize_screenshot, ScreenshotError, MAX_BYTES
 
 
@@ -38,6 +39,8 @@ def load_local_env() -> None:
 
 load_local_env()
 app = Flask(__name__)
+# nginx sets the trusted deployment prefix; local use remains at /.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
 app.config['MAX_CONTENT_LENGTH'] = MAX_BYTES
 API_ROOT = "https://api.pubg.com"
 API_ACCEPT = "application/vnd.api+json"
@@ -77,6 +80,11 @@ def terrain_height(map_name: str, x: float, y: float) -> float:
     bottom = values[y1 * TERRAIN_GRID + x0] * (1 - dx) + values[y1 * TERRAIN_GRID + x1] * dx
     # Community heightmap calibration; not a surveyed sea-level elevation.
     return round(((top * (1 - dy) + bottom * dy) - 127) * 2.08, 1)
+
+
+@app.get("/secret-rooms")
+def secret_rooms():
+    return render_template("secret-rooms.html")
 
 
 @app.post("/api/terrain-height")
