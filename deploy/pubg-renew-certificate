@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+if [ -f /etc/letsencrypt/renewal/pubg-ip.conf ]; then
+    exec /opt/pubg-certbot/bin/certbot renew --no-random-sleep-on-renew --cert-name pubg-ip --non-interactive --deploy-hook /usr/local/sbin/pubg-install-certificate
+else
+    exec /opt/pubg-certbot/bin/certbot certonly --non-interactive --agree-tos --register-unsafely-without-email --preferred-profile shortlived --webroot -w /var/www/acme --ip-address 95.174.95.143 --cert-name pubg-ip --deploy-hook /usr/local/sbin/pubg-install-certificate
+fi

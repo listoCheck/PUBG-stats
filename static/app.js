@@ -1,8 +1,9 @@
 const $ = id => document.getElementById(id);
-let state = {mapSize: 816000, squad: [], zones: [], combat: [], mapImage: ''};
+let state = {mapSize: 816000, squad: [], zones: [], combat: [], airdrops: [], mapImage: ''};
 let view = {scale: 1, x: 0, y: 0};
 let drag = null;
 const colors = ['#62d4cf', '#f0a24b', '#f27568', '#b490ff'];
+const zoneColors = ['#62d4cf', '#9edc82', '#f6d36e', '#f3a755', '#f27d74', '#cf96f2', '#aebfff', '#e5e8ec'];
 const playerColors = {
     'Svitoi_tapok': '#f4d03f',
     'not_trikesh': '#35c759',
@@ -19,8 +20,13 @@ function setStatus(text, error = false) {
     $('status').className = 'status' + (error ? ' error' : '')
 }
 
-function mapName(name) {
-    return ({
+const mapAliases = {
+    Baltic_Main: 'Erangel_Main', Desert_Main: 'Miramar_Main', Savage_Main: 'Sanhok_Main',
+    DihorOtok_Main: 'Vikendi_Main', Tiger_Main: 'Taego_Main', Neon_Main: 'Rondo_Main',
+    Summerland_Main: 'Karakin_Main', Chimera_Main: 'Paramo_Main',
+    Heaven_Main: 'Haven_Main', Kiki_Main: 'Deston_Main'
+};
+const mapNames = {
         Erangel_Main: 'Эрангель',
         Miramar_Main: 'Мирамар',
         Sanhok_Main: 'Санок',
@@ -30,8 +36,22 @@ function mapName(name) {
         Rondo_Main: 'Рондо',
         Karakin_Main: 'Каракин',
         Paramo_Main: 'Парамо',
-        Haven_Main: 'Хейвен'
-    })[name] || name
+        Haven_Main: 'Хейвен', Range_Main: 'Тренировочный полигон'
+};
+
+function canonicalMap(name) {
+    const value = String(name || '').trim();
+    return mapAliases[value] || value
+}
+
+function mapName(name) {
+    return mapNames[canonicalMap(name)] || name
+}
+
+function mapImage(name, fallback) {
+    const canonical = canonicalMap(name);
+    const extension = ['Paramo_Main', 'Miramar_Main'].includes(canonical) ? 'jpg' : 'webp';
+    return Object.hasOwn(mapNames, canonical) ? `/static/maps/${canonical}.${extension}?v=2` : (fallback || '')
 }
 
 function fmtDate(value) {
@@ -54,17 +74,29 @@ function esc(v) {
     }[c]))
 }
 
-function transform() {
-    const g = $('viewport');
-    g.setAttribute('transform', `translate(${view.x} ${view.y}) scale(${view.scale})`);
-    document.querySelectorAll('.combat-label-svg').forEach(label => {
-        label.style.fontSize = `${2.2 / view.scale}px`
+const mainCamera = createMapCamera($('routes'), $('map-image'), $('viewport'), () => transform());
+const overlay = {labels: [], drops: [], strokes: [], dots: []};
+let lastMainUnit = NaN;
+const scheduleMain = createMapFrame(() => {
+    const geometry = mainCamera.measure();
+    if (!geometry) return;
+    const unit = 1 / (geometry.pixelsPerUnit * view.scale);
+    mainCamera.apply(view);
+    // A pan only moves two parent layers; children and labels stay untouched.
+    if (unit === lastMainUnit) return;
+    lastMainUnit = unit;
+    overlay.strokes.forEach(({node, width, dashed}) => {
+        node.style.strokeWidth = width * unit;
+        if (dashed) node.style.strokeDasharray = `${4 * unit} ${3 * unit}`;
     });
-    document.querySelectorAll('.squad-route').forEach(line => line.style.strokeWidth = (.55 / view.scale));
-    document.querySelectorAll('.combat-line').forEach(line => line.style.strokeWidth = (.75 / view.scale));
-    document.querySelectorAll('.safe-zone').forEach(zone => zone.style.strokeWidth = ((zone.classList.contains('last') ? .8 : .35) / view.scale));
-    document.querySelectorAll('.combat-dot').forEach(dot => dot.setAttribute('r', 1.2 / view.scale))
+    overlay.dots.forEach(node => node.setAttribute('r', 2 * unit));
+    layoutCombatLabels(unit);
+    overlay.drops.forEach(({node, x, y}) => node.setAttribute('transform', `translate(${x} ${y}) scale(${unit})`));
+});
+function pixelUnit() {
+    return 1 / ((mainCamera.measure()?.pixelsPerUnit || 6) * view.scale);
 }
+function transform() { scheduleMain(); }
 
 function resetView() {
     view = {scale: 1, x: 0, y: 0};
@@ -80,89 +112,68 @@ function zoomAt(next, cx = 50, cy = 50) {
     transform()
 }
 
-function svgPoint(event) {
-    const r = $('routes').getBoundingClientRect();
-    return {x: (event.clientX - r.left) / r.width * 100, y: (event.clientY - r.top) / r.height * 100}
-}
+function svgPoint(event) { return mainCamera.point(event); }
 
 function clearGroup(id) {
     $(id).replaceChildren()
 }
 
-function placeCombatLabel(mx, my, text, seed, placed) {
-    const candidates = [[seed, seed], [seed, seed - 4], [seed, seed + 4], [seed - 6, seed], [seed + 6, seed], [seed - 6, seed - 4], [seed + 6, seed + 4], [seed - 9, seed + 6], [seed + 9, seed - 6]];
-    const width = Math.max(7, text.length * .72), height = 2.5;
-    for (const [dx, dy] of candidates) {
-        const x = mx + dx, y = my + dy,
-            box = {left: x - width / 2, right: x + width / 2, top: y - height, bottom: y + height};
-        if (!placed.some(p => box.left < p.right && box.right > p.left && box.top < p.bottom && box.bottom > p.top)) {
-            placed.push(box);
-            return {x, y}
-        }
-    }
-    const fallback = {x: mx + seed, y: my + seed + placed.length * 3};
-    placed.push({
-        left: fallback.x - width / 2,
-        right: fallback.x + width / 2,
-        top: fallback.y - height,
-        bottom: fallback.y + height
-    });
-    return fallback
+function svgElement(tag, attrs, parent) {
+    const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    Object.entries(attrs).forEach(([key, value]) => element.setAttribute(key, value));
+    parent.appendChild(element);
+    return element
 }
 
-function resolveLabelCollisions() {
-    const labels = [...document.querySelectorAll('.combat-label-svg')],
-        branches = [...document.querySelectorAll('.combat-branch')], placed = [], s = state.mapSize || 816000;
-    labels.forEach((label, i) => {
-        const event = state.combat[i];
-        if (!event) return;
-        const x = (event.from.x + event.to.x) / 2 / s * 100, y = (event.from.y + event.to.y) / 2 / s * 100,
-            text = label.textContent || '', pos = placeCombatLabel(x, y, text, 0, placed);
-        label.setAttribute('x', pos.x);
-        label.setAttribute('y', pos.y);
-        if (branches[i]) {
-            branches[i].setAttribute('x2', pos.x);
-            branches[i].setAttribute('y2', pos.y)
-        }
-    })
+const textMeasure = document.createElement('canvas').getContext('2d');
+function measureCombatLabels() {
+    if (!overlay.labels.length) return;
+    textMeasure.font = getComputedStyle(overlay.labels[0].label).font;
+    overlay.labels.forEach(item => { item.width = textMeasure.measureText(item.label.textContent).width; });
+    lastMainUnit = NaN;
+    transform();
 }
-
 function renderCombatSummary(s) {
-    const root = $('combat-summary');
     clearGroup('combat-summary');
-    const groups = [];
-    state.combat.forEach(event => {
-        const x = event.to.x / s * 100, y = event.to.y / s * 100;
-        let group = groups.find(item => Math.hypot(item.x - x, item.y - y) < 1.2);
-        if (!group) {
-            group = {x, y, events: []};
-            groups.push(group)
-        }
-        group.events.push(event)
+    overlay.labels = state.combat.map(event => {
+        const node = svgElement('g', {}, $('combat-summary'));
+        const label = svgElement('text', {'class': 'combat-summary-text', 'font-size': 11}, node);
+        label.textContent = `${event.kind} · ${event.weapon} · ${event.distance} м`;
+        return {node, label, x: event.to.x / s * 100, y: event.to.y / s * 100, width: 0};
     });
-    groups.forEach(group => {
-        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        g.setAttribute('class', 'combat-summary-group');
-        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        marker.setAttribute('cx', group.x);
-        marker.setAttribute('cy', group.y);
-        marker.setAttribute('r', '1.4');
-        marker.setAttribute('class', 'combat-summary-marker');
-        g.appendChild(marker);
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', group.x + 1.8);
-        text.setAttribute('y', group.y - 1);
-        text.setAttribute('class', 'combat-summary-text');
-        group.events.forEach((event, index) => {
-            const row = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
-            row.setAttribute('x', group.x + 1.8);
-            row.setAttribute('dy', index === 0 ? '0' : '2.5');
-            row.textContent = `${event.kind} · ${event.weapon} · ${event.distance} м`;
-            text.appendChild(row)
-        });
-        g.appendChild(text);
-        root.appendChild(g)
-    })
+    // One style read, canvas measurements: no per-label SVG layout flush.
+    measureCombatLabels();
+}
+function layoutCombatLabels(unit) {
+    const placed = new Map(), cellSize = 48;
+    function cells(box) {
+        const keys = [];
+        for (let x = Math.floor(box.left / cellSize); x <= Math.floor(box.right / cellSize); x++)
+            for (let y = Math.floor(box.top / cellSize); y <= Math.floor(box.bottom / cellSize); y++) keys.push(`${x},${y}`);
+        return keys;
+    }
+    overlay.labels.forEach(item => {
+        const x = item.x / unit, y = item.y / unit;
+        const left = x + 6 + item.width > (100 - view.x) / view.scale / unit ? x - 6 - item.width : x + 6;
+        let row = 0, box, keys;
+        do {
+            box = {left, right: left + item.width, top: y + row * 15 - 13, bottom: y + row * 15 + 2};
+            keys = cells(box); row++;
+        } while (row <= overlay.labels.length && keys.some(key => (placed.get(key) || []).some(p =>
+            box.left < p.right && box.right > p.left && box.top < p.bottom && box.bottom > p.top)));
+        keys.forEach(key => { if (!placed.has(key)) placed.set(key, []); placed.get(key).push(box); });
+        item.node.setAttribute('transform', `translate(${box.left * unit} ${(box.top + 7.5) * unit}) scale(${unit})`);
+    });
+}
+function renderAirdrops(s) {
+    clearGroup('airdrops');
+    overlay.drops = state.airdrops.map(drop => {
+        const node = svgElement('g', {class: 'airdrop-marker'}, $('airdrops'));
+        svgElement('rect', {x: -6, y: -6, width: 12, height: 12, rx: 1.5}, node);
+        svgElement('path', {d: 'M-6,-1 H6 M0,-6 V6'}, node);
+        svgElement('title', {}, node).textContent = `Приземлившийся эйрдроп${drop.landed_at ? ' · ' + new Date(drop.landed_at).toLocaleTimeString('ru-RU') : ''}`;
+        return {node, x: drop.x / s * 100, y: drop.y / s * 100};
+    });
 }
 
 function renderFlightPath(s) {
@@ -177,8 +188,7 @@ function renderFlightPath(s) {
 
 function renderRoutes() {
     const s = state.mapSize || 816000, image = $('map-image');
-    image.setAttribute('href', state.mapImage || '');
-    image.setAttribute('xlink:href', state.mapImage || '');
+    if (state.mapImage) image.src = state.mapImage; else image.removeAttribute('src');
     clearGroup('zones');
     clearGroup('squad-routes');
     clearGroup('combat-lines');
@@ -189,58 +199,32 @@ function renderRoutes() {
         c.setAttribute('cy', z.y / s * 100);
         c.setAttribute('r', z.radius / s * 100);
         c.setAttribute('class', i === state.zones.length - 1 ? 'safe-zone last' : 'safe-zone');
+        c.style.stroke = zoneColors[i % zoneColors.length];
+        if (z.phase) svgElement('title', {}, c).textContent = `Фаза ${z.phase}`;
         zones.appendChild(c)
     });
     state.squad.forEach((m, i) => {
         if (m.points.length < 2) return;
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
         line.setAttribute('points', m.points.map(p => `${p.x / s * 100},${p.y / s * 100}`).join(' '));
-        line.setAttribute('stroke', colors[i % 4]);
+        line.setAttribute('stroke', playerColor(m.name, i));
         line.setAttribute('class', 'squad-route');
         routes.appendChild(line)
     });
-    const clusters = {};
     state.combat.forEach(e => {
-        const key = `${Math.round(e.from.x / 100)},${Math.round(e.from.y / 100)}`;
-        (clusters[key] ??= []).push(e)
+        svgElement('line', {x1: e.from.x / s * 100, y1: e.from.y / s * 100,
+            x2: e.to.x / s * 100, y2: e.to.y / s * 100, class: 'combat-line'}, combat);
+        svgElement('circle', {cx: e.to.x / s * 100, cy: e.to.y / s * 100, class: 'combat-dot'}, combat)
     });
-    const clusterIndex = {};
-    state.combat.forEach(e => {
-        const x1 = e.from.x / s * 100, y1 = e.from.y / s * 100, x2 = e.to.x / s * 100, y2 = e.to.y / s * 100,
-            mx = (x1 + x2) / 2, my = (y1 + y2) / 2, key = `${Math.round(e.from.x / 100)},${Math.round(e.from.y / 100)}`,
-            group = clusters[key], idx = clusterIndex[key] || 0;
-        clusterIndex[key] = idx + 1;
-        const offset = (idx - (group.length - 1) / 2) * 3;
-        const labelX = mx + offset, labelY = my + offset;
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', x1);
-        line.setAttribute('y1', y1);
-        line.setAttribute('x2', x2);
-        line.setAttribute('y2', y2);
-        line.setAttribute('class', 'combat-line');
-        combat.appendChild(line);
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', x2);
-        circle.setAttribute('cy', y2);
-        circle.setAttribute('r', '1.2');
-        circle.setAttribute('class', 'combat-dot');
-        combat.appendChild(circle);
-        if (group.length > 1) {
-            const branch = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-            branch.setAttribute('x1', mx);
-            branch.setAttribute('y1', my);
-            branch.setAttribute('x2', labelX);
-            branch.setAttribute('y2', labelY);
-            branch.setAttribute('class', 'combat-branch');
-            combat.appendChild(branch)
-        }
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        label.setAttribute('x', labelX);
-        label.setAttribute('y', labelY);
-        label.setAttribute('class', 'combat-label-svg');
-        label.textContent = `${e.kind} · ${e.weapon} · ${e.distance} м`;
-        combat.appendChild(label)
-    });
+    renderFlightPath(s);
+    renderCombatSummary(s);
+    renderAirdrops(s);
+    overlay.strokes = [...document.querySelectorAll('.squad-route, .combat-line, .flight-line, .safe-zone')].map(node => ({
+        node, width: node.classList.contains('squad-route') || node.classList.contains('flight-line') ? 1.6 : node.classList.contains('combat-line') ? 1.4 : 1.3,
+        dashed: node.classList.contains('combat-line') || node.classList.contains('flight-line')
+    }));
+    overlay.dots = [...document.querySelectorAll('.combat-dot')];
+    lastMainUnit = NaN;
     transform()
 }
 
@@ -251,12 +235,23 @@ function renderSquad() {
 }
 
 function renderMatch(d) {
-    state.mapSize = d.map_size;
-    state.mapImage = d.map_image || '';
+    const map = canonicalMap(d.map);
+    state.mapSize = ({Paramo_Main: 306000, Sanhok_Main: 408000,
+        Karakin_Main: 204000, Range_Main: 204000, Haven_Main: 102000})[map]
+        || (Object.hasOwn(mapNames, map) ? 816000 : d.map_size || 816000);
+    state.mapImage = mapImage(map, d.map_image);
     state.squad = d.squad || [];
     state.flight = d.flight_path || [];
     state.zones = d.zone_pattern || [];
+    $('zone-phases').replaceChildren();
+    state.zones.forEach((zone, i) => {
+        const chip = document.createElement('span'), dot = document.createElement('i');
+        chip.className = 'zone-phase'; dot.style.borderColor = zoneColors[i % zoneColors.length];
+        chip.append(dot, document.createTextNode(zone.phase ? `Фаза ${zone.phase}` : `Зона ${i + 1}`));
+        $('zone-phases').appendChild(chip);
+    });
     state.combat = d.combat_lines || [];
+    state.airdrops = d.airdrops || [];
     const s = d.match_stats || {};
     $('map-name').textContent = mapName(d.map);
     $('rank').textContent = s.rank ?? '—';
@@ -276,7 +271,7 @@ function renderMatch(d) {
 }
 
 async function loadMatch(id) {
-    const player = $('player').value.trim();
+    const player = $('custom-player').value.trim() || $('player').value;
     setStatus('Загружаю выбранный матч и телеметрию…');
     try {
         const r = await fetch('/api/dashboard', {
@@ -313,14 +308,15 @@ $('routes').addEventListener('wheel', e => {
     zoomAt(view.scale * (e.deltaY < 0 ? 1.2 : .83), p.x, p.y)
 }, {passive: false});
 $('routes').addEventListener('pointerdown', e => {
+    mainCamera.invalidate();
     drag = {id: e.pointerId, x: e.clientX, y: e.clientY};
     e.currentTarget.setPointerCapture(e.pointerId)
 });
 $('routes').addEventListener('pointermove', e => {
     if (!drag) return;
-    const r = $('routes').getBoundingClientRect();
-    view.x += (e.clientX - drag.x) / r.width * 100;
-    view.y += (e.clientY - drag.y) / r.height * 100;
+    const current = svgPoint(e), previous = svgPoint({clientX: drag.x, clientY: drag.y});
+    view.x += current.x - previous.x;
+    view.y += current.y - previous.y;
     drag.x = e.clientX;
     drag.y = e.clientY;
     transform()
@@ -330,8 +326,15 @@ $('routes').addEventListener('pointercancel', () => drag = null);
 $('zoom-in').addEventListener('click', () => zoomAt(view.scale * 1.35));
 $('zoom-out').addEventListener('click', () => zoomAt(view.scale * .74));
 $('zoom-reset').addEventListener('click', resetView);
+$('player').addEventListener('change', () => { $('custom-player').value = '' });
+$('custom-player').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        $('load').click()
+    }
+});
 $('load').addEventListener('click', async () => {
-    const player = $('player').value.trim();
+    const player = $('custom-player').value.trim() || $('player').value;
     if (!player) return setStatus('Введите ник игрока.', true);
     $('load').disabled = true;
     $('load').textContent = 'Поиск…';
@@ -354,16 +357,4 @@ $('load').addEventListener('click', async () => {
     }
 });
 transform();
-const baseTransform = transform;
-transform = () => {
-    renderFlightPath(state.mapSize || 816000);
-    renderCombatSummary(state.mapSize || 816000);
-    baseTransform();
-    document.querySelectorAll('.squad-route').forEach((line, i) => line.style.stroke = playerColor(state.squad[i]?.name, i));
-    document.querySelectorAll('.flight-line').forEach(line => line.style.strokeWidth = .6 / view.scale);
-    document.querySelectorAll('.combat-summary-text').forEach(label => label.style.fontSize = `${2.2 / view.scale}px`);
-    document.querySelectorAll('.combat-summary-marker').forEach(marker => {
-        marker.setAttribute('r', 1.4 / view.scale);
-        marker.style.strokeWidth = .25 / view.scale
-    })
-};
+document.fonts?.ready.then(measureCombatLabels);

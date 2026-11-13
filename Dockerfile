@@ -9,9 +9,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY pubg.py .
+COPY pubg.py screenshot_recognition.py ./
 COPY templates ./templates
 COPY static ./static
+COPY terrain ./terrain
+
+RUN addgroup --system app && adduser --system --ingroup app --no-create-home app
+USER app
 
 EXPOSE 5000
 

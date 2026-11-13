@@ -1,0 +1,80 @@
+{
+  "source": "https://github.com/MingDMeng/mortarkiller",
+  "calibration_source": "https://github.com/MingDMeng/mortarkiller/blob/main/mortarkiller.py",
+  "meters_per_level": 2.08,
+  "zero_level": 127,
+  "maps": [
+    {
+      "map": "erangel",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    },
+    {
+      "map": "miramar",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    },
+    {
+      "map": "sanhok",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    },
+    {
+      "map": "vikendi",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    },
+    {
+      "map": "taego",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    },
+    {
+      "map": "deston",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    },
+    {
+      "map": "rondo",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    },
+    {
+      "map": "karakin",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    },
+    {
+      "map": "paramo",
+      "original_size": [
+        8192,
+        8192
+      ],
+      "grid": 2048
+    }
+  ]
+}

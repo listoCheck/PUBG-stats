@@ -69,6 +69,8 @@ h1 {
     flex: 1
 }
 
+.setup input { width: 100%; min-width: 0 }
+
 label {
     display: block;
     font-size: 11px;
@@ -414,8 +416,8 @@ footer {
 .map-tools { display: flex; gap: 5px }
 .map-button { height: 30px; min-width: 30px; padding: 0 8px; background: #182027; color: var(--text); border: 1px solid var(--line); font-size: 13px }
 .map-button:hover { border-color: var(--orange); color: var(--orange) }
-.safe-zone { fill: #73b9c015; stroke: #86cbd2; stroke-width: .35; opacity: .22 }
-.safe-zone.last { stroke-width: .8; opacity: .52 }
+.safe-zone { fill: none; stroke: #86cbd2; stroke-width: .35; opacity: .65 }
+.safe-zone.last { stroke-width: .8; opacity: .85 }
 .squad-route { fill: none; stroke-width: .55; opacity: .95 }
 .flight-line { fill: none; stroke: #f4d03f; stroke-width: .6; opacity: .9; pointer-events: none }
 .combat-line { stroke: #f27568; stroke-width: .75; stroke-dasharray: 1.5 1; opacity: .95 }
@@ -438,3 +440,153 @@ footer {
 .performance-grid small { display: block; color: var(--muted); font-size: 11px; margin-bottom: 6px }
 .performance-grid b { font: 600 24px 'Barlow Condensed'; color: var(--text) }
 @media (max-width: 720px) { .match-list { grid-template-columns: 1fr } .performance-grid { grid-template-columns: repeat(2, 1fr) } }
+
+/* Local label coordinates are CSS pixels; the parent applies inverse zoom. */
+.combat-summary-text { font-size: 11px; stroke: #101820; stroke-width: 3px; stroke-linejoin: round; paint-order: stroke fill; filter: none }
+.squad-route { stroke-linecap: round; stroke-linejoin: round }
+.airdrop-marker rect { fill: #ec6259; stroke: #fff; stroke-width: 1 }
+.airdrop-marker path { fill: none; stroke: #50bbf3; stroke-width: 2 }
+.map:after { display: none }
+
+.page-tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap }
+.page-tabs button { background: #1a2027; color: var(--muted); border: 1px solid var(--line) }
+.page-tabs button[aria-selected="true"] { background: var(--orange); color: #171717; border-color: var(--orange) }
+.calculator { padding: 18px }
+.calculator-controls { display: flex; align-items: end; gap: 12px; flex-wrap: wrap }
+.calculator-controls > div { flex: 1; min-width: 150px }
+.calculator-controls input, .calculator-controls select { width: 100% }
+.measurement-results { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 18px 0 }
+.measurement-results > div { background: #11161b; padding: 14px; border-radius: 8px }
+.measurement-results small { display: block; color: var(--muted); margin-bottom: 8px }
+.measurement-results strong { color: var(--cyan); font-size: 22px }
+.calculator-zoom { margin-bottom: 8px }
+.mortar-map { width: 100%; resize: vertical; cursor: default }
+.measurement-label { font-size: 13px; fill: white; stroke: #111; stroke-width: 3px; paint-order: stroke fill; pointer-events: none }
+@media (max-width: 720px) {
+    .measurement-results { grid-template-columns: 1fr }
+    .calculator-controls > div { flex-basis: 100% }
+    .page-tabs button { width: auto }
+}
+
+.map-picker { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 18px }
+.map-preview-card { height: auto; min-width: 0; padding: 0; overflow: hidden; background: #11161b; color: var(--text); border: 2px solid var(--line); text-align: left; white-space: normal }
+.map-preview-card img { display: block; width: 100%; height: 90px; object-fit: cover; transition: filter .15s; filter: brightness(.8) }
+.map-preview-card span { display: block; margin: 0; padding: 9px 10px; font-size: 13px }
+.map-preview-card:hover, .map-preview-card:focus-visible { border-color: var(--cyan) }
+.map-preview-card[aria-pressed="true"] { border-color: var(--orange); color: var(--orange); box-shadow: 0 0 0 1px var(--orange) }
+.map-preview-card[aria-pressed="true"] img { filter: brightness(1) }
+.calculator-selection { color: var(--muted); align-self: center }
+.calculator-selection strong { color: var(--text) }
+@media (max-width: 720px) { .map-picker { grid-template-columns: repeat(3, minmax(0, 1fr)) } .map-picker .map-preview-card { width: 100%; margin: 0 } .map-preview-card img { height: 75px } }
+
+/* Touch-friendly calculator and compact phone layout. */
+.map-selector { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; overflow: hidden }
+.map-selector summary { cursor: pointer; padding: 14px; min-height: 48px; font-size: 14px }
+.map-selector summary span { color: var(--muted); margin-left: 10px; font-size: 12px }
+.map-selector .map-picker { padding: 8px; margin: 0 }
+.point-modes { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 10px 0 }
+.point-modes button { min-height: 46px; height: auto; padding: 10px 6px; font-size: 13px; background: #182027; color: var(--muted); border: 1px solid var(--line); white-space: normal; margin: 0 }
+.point-modes button[aria-pressed="true"] { color: #111820; background: var(--cyan); border-color: var(--cyan) }
+button:disabled { opacity: .45; cursor: default }
+.mortar-map { height: min(75vh, 800px); resize: none; isolation: isolate }
+.map-overlay-zoom { position: absolute; z-index: 4; right: 10px; top: 10px; flex-direction: column; gap: 6px }
+#mortar-map-shell .map-button { width: 46px; height: 46px; margin: 0; padding: 0; background: #111b25ed; border-color: #778896; color: #fff; font-size: 17px; box-shadow: 0 2px 8px #0006 }
+#mortar-map-shell .map-expand { position: absolute; left: 10px; top: 10px; z-index: 4; font-size: 28px }
+.mortar-map:fullscreen, .mortar-map.map-expanded { width: 100vw; height: 100dvh; min-height: 0; max-width: none; border: 0; border-radius: 0; background: #111820 }
+.mortar-map.map-expanded { position: fixed; inset: 0; z-index: 1000 }
+body.map-is-expanded { overflow: hidden }
+@media (max-width: 900px) { .map-layout { grid-template-columns: 1fr } .setup { flex-wrap: wrap } .setup > div { min-width: 160px } }
+@media (max-width: 720px) {
+    html { scroll-padding-top: 72px }
+    body { overflow-x: clip }
+    .app-shell { padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)) }
+    h1 { font-size: 46px }
+    .sub { font-size: 12px; margin-bottom: 18px }
+    .page-tabs { position: sticky; top: 0; z-index: 12; display: grid; grid-template-columns: 1fr 1fr; padding: 8px 0; background: #11151af5; margin-bottom: 12px }
+    .page-tabs button { width: 100%; min-height: 48px; height: auto; padding: 10px 6px; font-size: 12px; margin: 0; white-space: normal }
+    .setup { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 14px }
+    .setup > div { min-width: 0 }
+    input, select { min-height: 48px; font-size: 16px; font-family: inherit }
+    .setup select, .setup input { margin: 0; width: 100% }
+    .setup button { min-height: 48px }
+    .calculator, .map-card, .side, .history-panel { padding: 12px }
+    .section-head h2 { font-size: 25px }
+    .calculator .section-head { margin-bottom: 10px }
+    .calculator-controls { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between }
+    .calculator-controls > .calculator-selection { min-width: 0; flex: 1; flex-basis: auto; font-size: 13px }
+    .calculator-controls > button { width: auto; min-height: 44px; height: auto; padding: 10px; margin: 0; font-size: 12px; background: #29333b; color: var(--text) }
+    .map-selector .map-picker { display: grid; grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: 94px; overflow-x: auto; overscroll-behavior-x: contain; padding: 8px; gap: 8px; scroll-snap-type: x proximity }
+    .map-picker .map-preview-card { scroll-snap-align: start; margin: 0; min-height: 96px }
+    .map-preview-card img { height: 64px }
+    .map-preview-card span { font-size: 12px; padding: 7px }
+    .measurement-results { grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin: 12px 0 }
+    .measurement-results > div { padding: 10px 7px; min-width: 0 }
+    .measurement-results small { font-size: 10px; min-height: 25px; margin-bottom: 4px }
+    .measurement-results strong { font-size: 17px; overflow-wrap: anywhere; line-height: 1.2 }
+    .point-modes button { font-size: 12px; min-height: 48px; width: 100% }
+    .mortar-map { min-width: 0; min-height: 0; height: min(65svh, 560px); resize: none }
+    #map { min-height: 0; height: 60svh; resize: none }
+    .map-tools .map-button { min-height: 44px; min-width: 44px; margin: 0; width: auto }
+    .map-tools { gap: 6px }
+    .hint { line-height: 1.55 }
+    .marker-row { overflow-wrap: anywhere }
+    .match-item { min-height: 100px }
+}
+@media (max-width: 920px) and (orientation: landscape) { .mortar-map { height: 78svh; min-height: 260px } .mortar-map:fullscreen, .mortar-map.map-expanded { height: 100dvh; min-height: 0 } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important } }
+
+h1, h2 { font-family: 'Barlow Condensed', 'Arial Narrow', Arial, sans-serif }
+.calculator-help { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.6 }
+.calculator-help summary { min-height: 44px; cursor: pointer; padding: 10px 0 }
+@media (max-width: 720px) { #mortar-page .section-head h2 { font-size: 20px; letter-spacing: 0; text-transform: none } .measurement-results small { min-height: 23px } }
+
+.map-loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 3; background: #111820e8; color: var(--cyan); pointer-events: none; font-size: 14px }
+
+.map-raster { position: absolute; z-index: 1; left: 0; top: 0; max-width: none; transform-origin: 0 0; will-change: transform; backface-visibility: hidden; pointer-events: none; user-select: none; }
+.map { contain: paint; }
+
+.map-readout { position: absolute; z-index: 4; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); padding: 12px 14px; background: #111b25ed; border: 1px solid #58706e; border-radius: 10px; color: var(--text); pointer-events: none; box-shadow: 0 3px 15px #0005 }
+.map-readout-primary { display: flex; align-items: center; justify-content: space-between; gap: 12px }
+.map-readout-primary small { color: var(--muted); font-size: 12px; max-width: 50% }
+.map-readout-primary strong { font-size: 22px; color: var(--cyan); text-align: right; line-height: 1.2 }
+.map-readout-secondary { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 11px; color: var(--muted) }
+.map-readout-secondary span { display: flex; flex-wrap: wrap; gap: 4px 8px }
+.map-readout-secondary b { color: var(--text); font-weight: 500 }
+.map-readout > small { display: block; color: var(--muted); font-size: 10px; margin-top: 6px; line-height: 1.4 }
+.map-fullscreen-modes { display: none; position: absolute; z-index: 4; top: 12px; left: 66px; right: 66px; justify-content: center; gap: 6px }
+.mortar-map:fullscreen .map-fullscreen-modes, .mortar-map.map-expanded .map-fullscreen-modes { display: flex }
+#mortar-map-shell .map-fullscreen-modes button { min-height: 44px; height: auto; width: auto; margin: 0; padding: 8px 10px; font-size: 12px; white-space: normal; background: #111b25ed; border: 1px solid var(--line); color: var(--text) }
+#mortar-map-shell .map-fullscreen-modes button[aria-pressed="true"] { color: #111820; background: var(--cyan) }
+@media (max-width: 480px) { .map-readout { left: 8px; right: 8px; padding: 10px } .map-readout-primary strong { font-size: 19px } .map-readout-primary small { font-size: 11px } #mortar-map-shell .map-fullscreen-modes button { font-size: 11px; padding: 6px; min-width: 0; flex: 1 } }
+
+.zone-phases { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px }
+.zone-phase { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 11px }
+.zone-phase i { display: inline-block; width: 10px; height: 10px; border: 2px solid; border-radius: 50% }
+.screenshot-tool { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 14px; padding: 0 14px 14px }
+.screenshot-tool:not([open]) { padding-bottom: 0 }
+.screenshot-tool summary { min-height: 48px; padding: 14px 0; cursor: pointer; font-weight: 600 }
+.screenshot-colors { display: flex; flex-wrap: wrap; gap: 10px 18px; border: 0; padding: 0; margin: 12px 0 }
+.screenshot-colors legend { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px }
+.screenshot-colors label { display: inline-flex; align-items: center; gap: 5px; margin: 0; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 13px; cursor: pointer; min-height: 30px }
+.screenshot-colors input { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--cyan) }
+.color-dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; box-shadow: 0 0 0 1px #fff7 }
+.color-dot.yellow { background:#ffdc20 }.color-dot.orange { background:#ff8a27 }.color-dot.blue { background:#368cff }.color-dot.green { background:#3cca60 }
+.screenshot-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px }
+.screenshot-actions button, .screenshot-file-button { display: inline-flex; align-items: center; justify-content: center; height: auto; min-height: 44px; padding: 10px 14px; margin: 0; border-radius: 8px; background: var(--orange); color: #171717; font-size: 13px; font-weight: 600; letter-spacing: 0; text-transform: none; cursor: pointer }
+#screenshot-file { position: absolute; width: 1px; height: 1px; min-height: 0; overflow: hidden; opacity: 0 }
+.screenshot-status { color: var(--cyan); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere }
+.screenshot-status.error { color: #ff8b78 }
+.screenshot-point-modes { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 }
+.screenshot-point-modes button { width: auto; min-height: 44px; height: auto; padding: 9px 12px; margin: 0; background: #182027; color: var(--text); border: 1px solid var(--line); font-size: 12px }
+.screenshot-point-modes button[aria-pressed="true"] { background: var(--cyan); color: #111820; border-color: var(--cyan) }
+@media (max-width: 720px) { .screenshot-tool { padding-left: 10px; padding-right: 10px } .screenshot-actions button, .screenshot-file-button { width: auto; margin: 0 } .screenshot-point-modes button { width: auto; margin: 0; flex: 1 } }
+.screenshot-map { background: #111820; min-width: 0; }
+#screenshot-svg { touch-action: none; cursor: pointer; }
+#screenshot-marks { pointer-events: none; }
+#screenshot-map-shell .map-button { width: 46px; height: 46px; margin: 0; padding: 0; background: #111b25ed; border-color: #778896; color: #fff; font-size: 17px; box-shadow: 0 2px 8px #0006 }
+#screenshot-map-shell .map-expand { position: absolute; left: 10px; top: 10px; z-index: 4; font-size: 28px }
+#screenshot-map-shell .map-fullscreen-modes button { min-height: 44px; height: auto; width: auto; margin: 0; padding: 8px 10px; font-size: 12px; background: #111b25ed; border: 1px solid var(--line); color: var(--text) }
+#screenshot-map-shell .map-fullscreen-modes button[aria-pressed="true"] { color: #111820; background: var(--cyan) }
+#screenshot-map-readout { display: none }
+#screenshot-map-shell:fullscreen #screenshot-map-readout, #screenshot-map-shell.map-expanded #screenshot-map-readout { display: block }
+@media (max-width: 480px) { #screenshot-map-shell .map-fullscreen-modes button { font-size: 11px; padding: 6px; min-width: 0; flex: 1 } }

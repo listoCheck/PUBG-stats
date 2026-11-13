@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+cert=/etc/letsencrypt/live/pubg-ip
+install -m 600 "$cert/privkey.pem" /etc/nginx/tls/pubg/privkey.pem
+install -m 644 "$cert/fullchain.pem" /etc/nginx/tls/pubg/fullchain.pem
+printf 'return 308 https://95.174.95.143$request_uri;\n' > /etc/nginx/snippets/pubg-http-mode.conf
+nginx -t
+systemctl reload nginx

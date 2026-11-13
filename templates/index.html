@@ -2,9 +2,11 @@
 <html lang="ru">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
     <title>DROPZONE / PUBG telemetry</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=3">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}?v=1">
+    <link rel="alternate icon" href="{{ url_for('static', filename='favicon.ico') }}?v=1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=10">
 </head>
 <body>
 <main class="app-shell">
@@ -12,13 +14,22 @@
         <div class="eyebrow">PUBG / TELEMETRY CONSOLE</div>
         <h1>DROPZONE</h1>
         <p class="sub">Статус последнего доступного матча и личная карта меток</p></header>
+    <nav class="page-tabs" role="tablist" aria-label="Разделы">
+        <button id="tab-stats" role="tab" aria-selected="true" aria-controls="stats-page">Статистика матчей</button>
+        <button id="tab-mortar" role="tab" aria-selected="false" aria-controls="mortar-page" tabindex="-1">Миномётный калькулятор</button>
+    </nav>
+    <div id="stats-page" role="tabpanel" aria-labelledby="tab-stats">
     <section class="setup panel">
-        <div><label for="player">Игрок</label><select id="player">
+        <div><label for="player">Тиммейт</label><select id="player">
             <option value="Svitoi_tapok">Svitoi_tapok</option>
             <option value="not_trikesh">not_trikesh</option>
             <option value="TAMnJluEPsc">TAMnJluEPsc</option>
             <option value="Na4aJlbHuK_DACHI" selected>Na4aJlbHuK_DACHI</option>
+            <option value="ElectroDarki">ElectroDarki</option>
         </select></div>
+        <div><label for="custom-player">Другой игрок</label>
+            <input id="custom-player" placeholder="Введите никнейм" autocomplete="off" spellcheck="false">
+        </div>
         <div><label for="shard">Платформа</label><select id="shard">
             <option value="steam">Steam</option>
             <option value="xbox">Xbox</option>
@@ -62,19 +73,20 @@
                 </div>
             </div>
             <div id="map" class="map">
-                <svg id="routes" viewBox="0 0 100 100" preserveAspectRatio="none">
+                <img id="map-image" class="map-raster" alt="" draggable="false" decoding="async">
+                <svg id="routes" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
                     <g id="viewport">
-                        <image id="map-image" x="0" y="0" width="100" height="100" preserveAspectRatio="none"/>
                         <g id="zones"></g>
                         <g id="flight-route"></g>
                         <g id="squad-routes"></g>
                         <g id="combat-lines"></g>
                         <g id="combat-summary"></g>
+                        <g id="airdrops"></g>
                     </g>
                 </svg>
             </div>
             <p class="hint">Жёлтая пунктирная линия — полёт самолёта. Цветные линии — наземные маршруты сквада. Голубые
-                круги — зоны, красные линии — ноки/убийства.</p></article>
+                круги — зоны, красные линии — ноки/убийства, красно-синие ящики — приземлившиеся эйрдропы.</p></article>
         <article class="panel side">
             <div class="section-head">
                 <div>
@@ -82,14 +94,124 @@
                     <h2>Участники</h2></div>
             </div>
             <div id="squad" class="markers empty">Выберите матч</div>
-            <div class="zone-legend"><span></span>Паттерн безопасной зоны</div>
+            <div class="zone-legend"><span></span>Фазы безопасной зоны</div>
+            <div id="zone-phases" class="zone-phases"></div>
             <div class="combat-title card-label">COMBAT EVENTS</div>
             <div id="combat-list" class="markers empty">Боевые события появятся здесь</div>
         </article>
     </section>
+    </div>
+    <section id="mortar-page" class="panel calculator hidden" role="tabpanel" aria-labelledby="tab-mortar">
+        <div class="section-head"><div><div class="card-label">PUBG / DISTANCE TOOL</div><h2>Миномётный калькулятор</h2></div></div>
+        <details id="mortar-map-selector" class="map-selector" open>
+            <summary>Выбрать карту <span>11 карт</span></summary>
+            <div id="mortar-map-cards" class="map-picker" role="group" aria-label="Выберите карту"></div>
+        </details>
+        <details id="screenshot-tool" class="screenshot-tool">
+            <summary>Расстояние по скриншоту</summary>
+            <p class="hint">Выберите эту же карту выше, цвет игрока и вставьте скриншот карты из буфера обмена или выберите файл.</p>
+            <div class="screenshot-controls">
+                <fieldset class="screenshot-colors"><legend>Цвет игрока</legend>
+                    <label><input type="radio" name="screenshot-color" value="yellow" checked><span class="color-dot yellow"></span>Жёлтый</label>
+                    <label><input type="radio" name="screenshot-color" value="orange"><span class="color-dot orange"></span>Оранжевый</label>
+                    <label><input type="radio" name="screenshot-color" value="blue"><span class="color-dot blue"></span>Синий</label>
+                    <label><input type="radio" name="screenshot-color" value="green"><span class="color-dot green"></span>Зелёный</label>
+                </fieldset>
+                <div class="screenshot-actions">
+                    <button type="button" id="screenshot-paste">Вставить из буфера</button>
+                    <label class="screenshot-file-button" for="screenshot-file">Выбрать файл</label>
+                    <input id="screenshot-file" type="file" accept="image/png,image/jpeg,image/webp">
+                </div>
+                <p class="hint">Скриншот отправляется на ваш VPS для распознавания и не сохраняется в файлах.</p>
+            </div>
+            <p id="screenshot-status" class="screenshot-status" role="status" aria-live="polite">Ожидаю скриншот. На компьютере также можно нажать Ctrl+V.</p>
+            <div id="screenshot-result" class="hidden">
+                <div class="screenshot-point-modes" role="group" aria-label="Точка на скриншоте">
+                    <button type="button" id="screenshot-mode-a" aria-pressed="true">A · Игрок</button>
+                    <button type="button" id="screenshot-mode-b" aria-pressed="false">B · Метка</button>
+                    <button type="button" id="screenshot-reset">Сбросить</button>
+                    <button type="button" id="screenshot-calibrate">Совместить по ориентирам</button>
+                </div>
+                <p class="hint">Если автоматические подсказки неточны, выберите A или B и нажмите на соответствующее место на скриншоте.</p>
+                <div id="screenshot-map-shell" class="map mortar-map screenshot-map">
+                    <svg id="screenshot-svg" preserveAspectRatio="xMidYMid meet" aria-label="Интерактивный скриншот карты: выберите игрока и метку">
+                        <g id="screenshot-viewport"><image id="screenshot-image" x="0" y="0"/><g id="screenshot-marks"></g></g>
+                    </svg>
+                    <div class="map-tools map-overlay-zoom">
+                        <button type="button" id="screenshot-zoom-in" class="map-button" aria-label="Приблизить">+</button>
+                        <button type="button" id="screenshot-zoom-out" class="map-button" aria-label="Отдалить">−</button>
+                        <button type="button" id="screenshot-focus-points" class="map-button" aria-label="Показать обе точки">A↔B</button>
+                        <button type="button" id="screenshot-zoom-fit" class="map-button" aria-label="Показать весь скриншот">1:1</button>
+                    </div>
+                    <button type="button" id="screenshot-fullscreen" class="map-button map-expand" aria-label="Развернуть карту" aria-pressed="false">⛶</button>
+                    <div class="map-fullscreen-modes" role="group" aria-label="Режим выбора точки">
+                        <button type="button" id="screenshot-map-mode-a" aria-pressed="true">A · Игрок</button>
+                        <button type="button" id="screenshot-map-mode-b" aria-pressed="false">B · Метка</button>
+                        <button type="button" id="screenshot-map-mode-pan" aria-pressed="false">Перемещение</button>
+                    </div>
+                    <div id="screenshot-map-readout" class="map-readout"><div class="map-readout-primary"><small>Прямое расстояние с высотой</small><strong id="screenshot-map-distance">—</strong></div><div class="map-readout-secondary"><span>По горизонтали <b id="screenshot-map-horizontal">—</b></span><span>Перепад B − A <b id="screenshot-map-height">—</b></span></div></div>
+                </div>
+                <p class="hint">Перетаскивайте карту или точки. Колесо мыши и жест двумя пальцами изменяют масштаб.</p>
+                <div class="measurement-results screenshot-measurements" aria-live="polite">
+                    <div><small>По горизонтали</small><strong id="screenshot-horizontal">—</strong></div>
+                    <div><small>Перепад B − A</small><strong id="screenshot-height">—</strong></div>
+                    <div><small>Прямое с высотой</small><strong id="screenshot-distance">—</strong></div>
+                </div>
+                <p id="screenshot-height-note" class="hint">Высоты приблизительные и не учитывают крыши и мосты. Прямое расстояние не является баллистической настройкой миномёта.</p>
+            </div>
+        </details>
+        <div class="calculator-controls">
+            <div class="calculator-selection">Карта: <strong id="mortar-selected-name"></strong></div>
+            <button id="mortar-clear">Сбросить точки</button>
+        </div>
+        <p id="mortar-instruction" class="hint" aria-live="polite">Нажмите на карту, чтобы поставить точку A — миномёт.</p>
+        <div class="measurement-results" aria-live="polite">
+            <div><small>По горизонтали</small><strong id="mortar-horizontal">—</strong></div>
+            <div><small>Перепад B − A</small><strong id="mortar-height">—</strong></div>
+            <div><small>Прямое расстояние с высотой</small><strong id="mortar-distance">—</strong></div>
+        </div>
+        <div class="point-modes" role="group" aria-label="Что поставить на карту">
+            <button id="mode-a" class="mode-button" aria-pressed="true">A · Миномёт</button>
+            <button id="mode-b" class="mode-button" aria-pressed="false">B · Цель</button>
+            <button id="mode-pan" class="mode-button" aria-pressed="false">Перемещение</button>
+        </div>
+        <div id="mortar-map-shell" class="map mortar-map">
+            <div id="mortar-loading" class="map-loading hidden" role="status">Загружаю карту…</div>
+            <img id="mortar-image" class="map-raster" alt="" draggable="false" decoding="async">
+            <svg id="mortar-svg" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-label="Карта для выбора двух точек">
+                <g id="mortar-viewport"><g id="mortar-points"></g></g>
+            </svg>
+            <div class="map-tools map-overlay-zoom">
+                <button id="mortar-plus" class="map-button" aria-label="Приблизить">+</button>
+                <button id="mortar-minus" class="map-button" aria-label="Отдалить">−</button>
+                <button id="mortar-fit" class="map-button" aria-label="Показать обе точки">A↔B</button>
+                <button id="mortar-reset" class="map-button" aria-label="Показать всю карту">1:1</button>
+            </div>
+            <button id="mortar-fullscreen" class="map-button map-expand" aria-label="Развернуть карту" aria-pressed="false">⛶</button>
+            <div class="map-fullscreen-modes" role="group" aria-label="Режим выбора точки">
+                <button id="map-mode-a" aria-pressed="true">A · Миномёт</button>
+                <button id="map-mode-b" aria-pressed="false">B · Цель</button>
+                <button id="map-mode-pan" aria-pressed="false">Двигать карту</button>
+            </div>
+            <div class="map-readout" aria-live="polite">
+                <div class="map-readout-primary"><small>Прямое расстояние с высотой</small><strong id="mortar-map-distance">Выберите миномёт A</strong></div>
+                <div class="map-readout-secondary"><span>Горизонталь <b id="mortar-map-horizontal">—</b></span><span>Перепад B − A <b id="mortar-map-height">—</b></span></div>
+                <small id="mortar-map-note">Коснитесь карты или щёлкните мышью</small>
+            </div>
+        </div>
+        <details class="calculator-help"><summary>Жесты, дальность и точность высот</summary>
+        <p class="hint">Касание — поставить выбранную точку. Перетаскивайте карту одним пальцем, масштабируйте двумя. Метки A и B можно перетаскивать.</p>
+        <p class="hint">Бирюзовая окружность вокруг A — максимальная номинальная дальность 700 м на одном уровне. Перепад высот меняет фактическую дальность.</p>
+        <p class="hint">Высоты определяются автоматически по картам рельефа сообщества (оценка, данные могут отличаться от текущей версии игры). Модель показывает поверхность земли, без зданий и мостов. Для Хейвена и тренировочного полигона данных нет. Прямое расстояние с высотой не является готовой настройкой дальности миномёта.</p>
+        </details>
+        <p id="mortar-error" class="status error" role="alert"></p>
+    </section>
     <footer id="note">Официальный PUBG API отдаёт телеметрию завершённых матчей. Ключ хранится только на сервере.
     </footer>
 </main>
-<script src="{{ url_for('static', filename='app.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='map-renderer.js') }}?v=1"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=11"></script>
+<script src="{{ url_for('static', filename='mortar.js') }}?v=8"></script>
+<script src="{{ url_for('static', filename='screenshot.js') }}?v=2"></script>
 </body>
 </html>

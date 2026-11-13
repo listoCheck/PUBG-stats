@@ -10,12 +10,16 @@ available match telemetry for a player, not a live game session.
 
 from __future__ import annotations
 
+import json
+import gzip
 import math
 import os
+from functools import lru_cache
 from typing import Any
 
 import requests
 from flask import Flask, jsonify, render_template, request
+from screenshot_recognition import recognize_screenshot, ScreenshotError, MAX_BYTES
 
 
 def load_local_env() -> None:
@@ -34,14 +38,90 @@ def load_local_env() -> None:
 
 load_local_env()
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = MAX_BYTES
 API_ROOT = "https://api.pubg.com"
 API_ACCEPT = "application/vnd.api+json"
 REQUEST_TIMEOUT = 30
-MAP_ALIASES = {"Baltic_Main": "Erangel_Main", "Desert_Main": "Miramar_Main", "Savage_Main": "Sanhok_Main", "DihorOtok_Main": "Vikendi_Main", "Tiger_Main": "Taego_Main", "Neon_Main": "Rondo_Main", "Summerland_Main": "Karakin_Main"}
+MAP_ALIASES = {"Baltic_Main": "Erangel_Main", "Desert_Main": "Miramar_Main", "Savage_Main": "Sanhok_Main", "DihorOtok_Main": "Vikendi_Main", "Tiger_Main": "Taego_Main", "Neon_Main": "Rondo_Main", "Summerland_Main": "Karakin_Main", "Chimera_Main": "Paramo_Main", "Heaven_Main": "Haven_Main", "Kiki_Main": "Deston_Main"}
 MAP_SIZES = {"Sanhok_Main": 408000, "Paramo_Main": 306000, "Karakin_Main": 204000, "Range_Main": 204000, "Haven_Main": 102000}
-MAP_IMAGES = {name: f"https://raw.githubusercontent.com/pubg/api-assets/master/Assets/Icons/Map/{name}_Large.png" for name in ("Erangel_Main", "Miramar_Main", "Sanhok_Main", "Vikendi_Main", "Taego_Main", "Deston_Main", "Rondo_Main", "Karakin_Main", "Paramo_Main", "Haven_Main")}
-MAP_IMAGES["Erangel_Main"] = "/static/maps/Erangel_official.webp"
-MAP_IMAGES["Taego_Main"] = "/static/maps/Taego_official.webp"
+MAP_IMAGES = {name: f"/static/maps/{name}.webp" for name in ("Erangel_Main", "Miramar_Main", "Sanhok_Main", "Vikendi_Main", "Taego_Main", "Deston_Main", "Rondo_Main", "Karakin_Main", "Paramo_Main", "Haven_Main", "Range_Main")}
+MAP_IMAGES.update({name: f"/static/maps/{name}.jpg" for name in ("Paramo_Main", "Miramar_Main")})
+with open(os.path.join(os.path.dirname(__file__), "static", "weapon_names.json"), encoding="utf-8") as weapon_file:
+    WEAPON_NAMES = json.load(weapon_file)
+
+TERRAIN_MAPS = {f"{name.title()}_Main": name for name in (
+    "erangel", "miramar", "sanhok", "vikendi", "taego", "deston", "rondo", "karakin", "paramo")}
+TERRAIN_GRID = 2048
+
+
+@lru_cache(maxsize=3)
+def terrain_grid(map_name: str) -> bytes:
+    path = os.path.join(os.path.dirname(__file__), "terrain", TERRAIN_MAPS[map_name] + ".u8.gz")
+    with gzip.open(path, "rb") as terrain_file:
+        values = terrain_file.read()
+    if len(values) != TERRAIN_GRID ** 2:
+        raise ValueError("Invalid terrain grid")
+    return values
+
+
+def terrain_height(map_name: str, x: float, y: float) -> float:
+    extent = MAP_SIZES.get(map_name, 816000)
+    if not math.isfinite(x) or not math.isfinite(y) or not (0 <= x <= extent and 0 <= y <= extent):
+        raise ValueError("Coordinates outside map")
+    values = terrain_grid(map_name)
+    px, py = x / extent * (TERRAIN_GRID - 1), y / extent * (TERRAIN_GRID - 1)
+    x0, y0 = int(px), int(py)
+    x1, y1 = min(x0 + 1, TERRAIN_GRID - 1), min(y0 + 1, TERRAIN_GRID - 1)
+    dx, dy = px - x0, py - y0
+    top = values[y0 * TERRAIN_GRID + x0] * (1 - dx) + values[y0 * TERRAIN_GRID + x1] * dx
+    bottom = values[y1 * TERRAIN_GRID + x0] * (1 - dx) + values[y1 * TERRAIN_GRID + x1] * dx
+    # Community heightmap calibration; not a surveyed sea-level elevation.
+    return round(((top * (1 - dy) + bottom * dy) - 127) * 2.08, 1)
+
+
+@app.post("/api/terrain-height")
+def terrain_heights():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify(error="Некорректный запрос"), 400
+    raw_map = str(payload.get("map", ""))
+    map_name = MAP_ALIASES.get(raw_map, raw_map)
+    if map_name not in TERRAIN_MAPS:
+        return jsonify(error="Для этой карты нет данных высоты рельефа", supported=False), 422
+    points = payload.get("points")
+    if not isinstance(points, list) or not 1 <= len(points) <= 2:
+        return jsonify(error="Укажите одну или две точки"), 400
+    try:
+        heights = [terrain_height(map_name, float(point["x"]), float(point["y"])) for point in points]
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return jsonify(error="Некорректные координаты точек"), 400
+    except (OSError, EOFError):
+        return jsonify(error="Файл рельефа отсутствует или повреждён"), 503
+    return jsonify(heights=heights, estimated=True, source="MingDMeng/mortarkiller",
+                   grid_spacing_m=MAP_SIZES.get(map_name, 816000) / 100 / (TERRAIN_GRID - 1))
+
+
+
+@app.post("/api/screenshot/recognize")
+def recognize_map_screenshot():
+    if request.content_length is None or request.content_length > MAX_BYTES:
+        return jsonify(error="Размер скриншота должен быть не больше 12 МБ"), 413
+    raw_map = request.args.get('map', '')
+    name = MAP_ALIASES.get(raw_map, raw_map)
+    color = request.args.get('color', '')
+    if name not in MAP_IMAGES:
+        return jsonify(error="Выберите карту и изображение"), 400
+    path = os.path.join(os.path.dirname(__file__), 'static', 'maps', name + '.webp')
+    try:
+        result = recognize_screenshot(request.get_data(cache=False), color, path, MAP_SIZES.get(name, 816000))
+    except ScreenshotError as exc:
+        return jsonify(error=str(exc)), 422
+    return jsonify(result)
+
+
+@app.errorhandler(413)
+def too_large(_error):
+    return jsonify(error="Размер скриншота должен быть не больше 12 МБ"), 413
 
 
 @app.after_request
@@ -140,7 +220,67 @@ def character_location(character: dict[str, Any] | None) -> dict[str, float] | N
     return {"x": float(location.get("x", 0)), "y": float(location.get("y", 0)), "z": float(location.get("z", 0))}
 
 
+def phase_zones(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One safety circle per phase; infer distinct circles for older telemetry."""
+    by_phase: dict[int, dict[str, Any]] = {}
+    fallback: list[dict[str, Any]] = []
+    current_phase = None
+    previous_unphased = None
+    for event in events:
+        if event.get('_T') == 'LogPhaseChange':
+            value = event.get('phase')
+            if isinstance(value, (int, float)) and math.isfinite(value) and value >= 1:
+                current_phase = int(value)
+        if event.get('_T') != 'LogGameStatePeriodic':
+            continue
+        state = event.get('gameState') or {}
+        # safetyZoneRadius is often the moving blue boundary; the warning
+        # circle is the fixed destination for the current phase.
+        warning = state.get('poisonGasWarningPosition') or {}
+        warning_radius = state.get('poisonGasWarningRadius')
+        has_warning = warning.get('x') is not None and warning.get('y') is not None and warning_radius
+        if has_warning:
+            position, radius = warning, warning_radius
+        else:
+            position, radius = state.get('safetyZonePosition') or {}, state.get('safetyZoneRadius')
+        try:
+            x, y, radius = float(position['x']), float(position['y']), float(radius)
+            if not all(math.isfinite(v) for v in (x, y, radius)) or radius <= 0:
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        circle = {'x': round(x), 'y': round(y), 'radius': round(radius),
+                  'elapsed': event.get('elapsedTime', state.get('elapsedTime'))}
+        raw_phase = (event.get('common') or {}).get('isGame')
+        if isinstance(raw_phase, (int, float)) and math.isfinite(raw_phase):
+            # Before the first circle appears, 0.1 and 0.5 are not phases.
+            phase = math.floor(raw_phase) if raw_phase >= 1 else None
+        else:
+            phase = current_phase
+        if phase:
+            circle['phase'] = phase
+            by_phase.setdefault(phase, circle)
+        elif raw_phase is None:
+            # Without a phase number, only trust a fixed target circle or a
+            # blue boundary that stayed still across consecutive samples.
+            stable = has_warning or (previous_unphased is not None and
+                abs(radius - previous_unphased['radius']) <= radius * 0.01 and
+                math.hypot(x - previous_unphased['x'], y - previous_unphased['y']) <= radius * 0.01)
+            candidate = circle if has_warning else previous_unphased
+            previous = fallback[-1] if fallback else None
+            if stable and (previous is None or
+                abs(candidate['radius'] - previous['radius']) > previous['radius'] * 0.03 or
+                math.hypot(candidate['x'] - previous['x'], candidate['y'] - previous['y']) > previous['radius'] * 0.03):
+                fallback.append(candidate)
+            previous_unphased = circle
+    if by_phase:
+        return [by_phase[key] for key in sorted(by_phase)]
+    return fallback
+
+
 def clean_weapon_name(value: Any) -> str:
+    if value in WEAPON_NAMES:
+        return WEAPON_NAMES[value]
     name = str(value or "Оружие не указано")
     for prefix in ("Item_Weapon_", "Weapon_", "Weap"):
         if name.startswith(prefix):
@@ -197,6 +337,7 @@ def build_snapshot(player_name: str, player_attrs: dict[str, Any], match: dict[s
     flight_paths: dict[str, list[dict[str, int]]] = {}
     last_locations: dict[str, dict[str, float]] = {}
     combat_lines = []
+    airdrops = {}
 
     # First find the player's team. This lets us include squadmates even if
     # their first position event appears before the player's first event.
@@ -214,7 +355,6 @@ def build_snapshot(player_name: str, player_attrs: dict[str, Any], match: dict[s
                 team_accounts.add(member_id)
     landing_index = next((index for index, event in enumerate(events) if event.get("_T") == "LogParachuteLanding" and ((event.get("character") or {}).get("accountId") in team_accounts or (event.get("character") or {}).get("name") == player_name)), None)
 
-    zone_pattern = []
     for event_index, event in enumerate(events):
         character = character_of(event)
         if event.get("_T") == "LogPlayerPosition" and character and character.get("location"):
@@ -237,16 +377,16 @@ def build_snapshot(player_name: str, player_attrs: dict[str, Any], match: dict[s
         if event.get("_T") == "LogMatchStart":
             map_name = event.get("mapName") or map_name
 
+        if event.get("_T") == "LogCarePackageLand":
+            package = event.get("itemPackage") or {}
+            location = character_location(package)
+            if location:
+                key = package.get("itemPackageId") or (location["x"], location["y"])
+                airdrops[key] = {"id": str(key), **location, "landed_at": event.get("_D")}
+
         combat = combat_event(event, player_team_id, team_accounts, last_locations)
         if combat:
             combat_lines.append(combat)
-
-        if event.get("_T") == "LogGameStatePeriodic":
-            game_state = event.get("gameState") or {}
-            zone = game_state.get("safetyZonePosition") or {}
-            radius = game_state.get("safetyZoneRadius")
-            if zone.get("x") is not None and zone.get("y") is not None and radius:
-                zone_pattern.append({"x": round(float(zone["x"])), "y": round(float(zone["y"])), "radius": round(float(radius)), "elapsed": event.get("elapsedTime")})
 
     squad_paths = []
     for route in paths.values():
@@ -260,7 +400,6 @@ def build_snapshot(player_name: str, player_attrs: dict[str, Any], match: dict[s
     flight_step = max(1, math.ceil(len(flight_path) / 350))
     map_name = MAP_ALIASES.get(map_name, map_name)
     map_size = MAP_SIZES.get(map_name, 816000)
-    zone_step = max(1, math.ceil(len(zone_pattern) / 80))
     return {
         "player": player_name,
         "match_id": next((x.get("id") for x in (match.get("data", {}),) if isinstance(x, dict)), None),
@@ -269,8 +408,9 @@ def build_snapshot(player_name: str, player_attrs: dict[str, Any], match: dict[s
         "map_size": map_size,
         "squad": squad_paths,
         "flight_path": flight_path[::flight_step],
-        "zone_pattern": zone_pattern[::zone_step],
+        "zone_pattern": phase_zones(events),
         "combat_lines": combat_lines,
+        "airdrops": list(airdrops.values()),
         "telemetry_events": len(events),
         "note": "Маршруты сквада и паттерн безопасной зоны восстановлены из телеметрии выбранного матча.",
     }
@@ -279,6 +419,11 @@ def build_snapshot(player_name: str, player_attrs: dict[str, Any], match: dict[s
 @app.get("/")
 def index():
     return render_template("index.html")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return app.send_static_file("favicon.ico")
 
 
 @app.post("/api/players")
