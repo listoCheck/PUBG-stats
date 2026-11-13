@@ -82,6 +82,11 @@ def terrain_height(map_name: str, x: float, y: float) -> float:
     return round(((top * (1 - dy) + bottom * dy) - 127) * 2.08, 1)
 
 
+@app.get("/weapons")
+def weapons_page():
+    return render_template("weapons.html")
+
+
 @app.get("/secret-rooms")
 def secret_rooms():
     return render_template("secret-rooms.html")
